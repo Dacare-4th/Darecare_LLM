@@ -1,0 +1,30 @@
+# FastAPI
+fastapi
+uvicorn[standard]
+
+# LangGraph / LangChain
+langgraph
+langchain
+langchain-community
+langchain-openai
+
+# VectorDB
+chromadb
+
+# PDF 처리
+pypdf
+langchain-community
+
+# 웹 크롤링 (NHIS)
+requests
+beautifulsoup4
+
+# 환율 API
+httpx
+
+# 언어 감지
+langdetect
+
+# 유틸
+python-dotenv
+pydantic

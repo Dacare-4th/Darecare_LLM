@@ -1,0 +1,69 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 가상환경
+.venv/
+venv/
+env/
+ENV/
+
+# ========================
+# IDE
+# ========================
+.idea/
+.vscode/
+*.iml
+*.iws
+
+# PyCharm
+.idea/
+*.ipr
+
+# ========================
+# OS
+# ========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# ========================
+# 프로젝트 전용 (git 제외)
+# ========================
+# 벡터DB (용량 크고 로컬 생성)
+vectordb/
+
+# 원본 PDF (저작권 / 용량)
+data/
+
+# 환경변수 (보안)
+.env
+
+# LangGraph 체크포인트 DB
+checkpoints.db
+*.db
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# 평가 결과
+evaluation/results/
+
+# 파인튜닝 체크포인트
+finetuning/checkpoints/
+finetuning/output/
