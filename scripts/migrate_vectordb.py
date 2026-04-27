@@ -17,7 +17,7 @@ def migrate():
         print(f"  - {col.name}: {count}개 청크")
 
     confirm = input("\n모든 컬렉션을 삭제하고 재생성하시겠습니까? (yes/no): ")
-    if confirm.lower() \!= "yes":
+    if confirm.lower() != "yes":
         print("취소되었습니다.")
         sys.exit(0)
 

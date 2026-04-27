@@ -48,7 +48,7 @@ ehthumbs.db
 vectordb/
 
 # 원본 PDF (저작권 / 용량)
-data/
+# data/
 
 # 환경변수 (보안)
 .env
@@ -58,6 +58,7 @@ checkpoints.db
 *.db
 
 # Jupyter
+*.ipynb
 .ipynb_checkpoints/
 notebooks/.ipynb_checkpoints/
 
