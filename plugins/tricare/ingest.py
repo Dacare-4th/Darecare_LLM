@@ -1,5 +1,5 @@
 # tricare PDF → 청킹 → DocumentMetadata 태깅 → tricare 컬렉션 저장
-from utils.ingest_utils import load_pdf, chunk_text, save_to_collection
+from plugins.ingest_all import load_pdf, chunk_text, save_to_collection
 from utils.schemas import DocumentMetadata
 
 DATA_DIR = "./data/tricare"
