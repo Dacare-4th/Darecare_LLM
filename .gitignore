@@ -52,6 +52,7 @@ vectordb/
 
 # 전처리된 파일들
 data/nhis/processed/
+data/cigna/processed/
 
 # 환경변수 (보안)
 .env
@@ -61,9 +62,9 @@ checkpoints.db
 *.db
 
 # Jupyter
-#*.ipynb
-#.ipynb_checkpoints/
-#notebooks/.ipynb_checkpoints/
+*.ipynb
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
 
 # 평가 결과
 evaluation/results/
