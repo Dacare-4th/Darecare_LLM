@@ -9,17 +9,29 @@ ingest_to_db.py
     ingest(chunks)
 
 보험사별 컬렉션 매핑:
-    MSH      →  msh_china_plans
-    Cigna    →  cigna_plans
-    UHCG     →  uhcg_plans
-    Tricare  →  tricare_plans
+    msh_china  →  msh_china_plans
+    cigna      →  cigna_plans
+    uhcg       →  uhcg_plans
+    tricare    →  tricare_plans
+    nhis       →  nhis_plans
 """
+
+# FIXED LIKE BELOW
+# 보험사별 컬렉션 매핑:
+#     msh_china  →  msh_china_plans
+#     cigna      →  cigna_plans
+#     uhcg       →  uhcg_plans
+#     tricare    →  tricare_plans
+#     nhis       →  nhis_plans
+
+
 
 import time
 from typing import List
 from pathlib import Path
 import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
+
 
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
@@ -30,10 +42,11 @@ BATCH_SIZE  = 32
 BGE_MODEL   = "BAAI/bge-m3"
 
 INSURER_TO_COLLECTION = {
-    "MSH"    : "msh_china_plans",
-    "Cigna"  : "cigna_plans",
-    "UHCG"   : "uhcg_plans",
-    "Tricare": "tricare_plans",
+    "msh_china": "msh_china_plans",
+    "cigna"    : "cigna_plans",
+    "uhcg"     : "uhcg_plans",
+    "tricare"  : "tricare_plans",
+    "nhis"     : "nhis_plans",
 }
 
 
@@ -97,8 +110,11 @@ def ingest(chunks: list) -> None:
     청크 리스트를 받아 ChromaDB에 업로드.
 
     Args:
-        chunks: [{"chunk_id": str, "content": str, "metadata": dict}, ...]
+        chunks: [{"chunk_id": str, "content"|"text": str, "metadata": dict}, ...]
     """
+    # FIXED ABOVE 위에 수정, content, text 둘다 설명
+
+
     print(f"[INFO] 청크 수: {len(chunks)}")
 
     collection_name = resolve_collection_name(chunks)
@@ -122,11 +138,13 @@ def ingest(chunks: list) -> None:
 
     for i in range(0, total, BATCH_SIZE):
         batch = new_chunks[i : i + BATCH_SIZE]
-
+        
+        # FIXED BELOW (content, text) 둘다 되게
+        texts = [c.get("content") or c.get("text", "") for c in batch]
         col.add(
             ids        = [c["chunk_id"] for c in batch],
-            documents  = [c["content"]  for c in batch],
-            embeddings = embed_texts(model, [c["content"] for c in batch]),
+            documents  = texts,
+            embeddings = embed_texts(model, texts),
             metadatas  = [sanitize_metadata(c["metadata"]) for c in batch],
         )
 

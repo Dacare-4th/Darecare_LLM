@@ -54,6 +54,9 @@ vectordb/
 data/nhis/processed/
 data/cigna/processed/
 
+# NHIS 임시 임베딩 파일
+scripts/upload_nhis_to_db.py
+
 # 환경변수 (보안)
 .env
 
