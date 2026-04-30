@@ -19,7 +19,6 @@ class Intent:
     PROCEDURE      = "procedure"        # ④ 일반 절차 안내
     NHIS           = "nhis"             # ⑤ NHIS 상담
     CLAIM          = "claim"            # ⑥ 청구 절차 + 양식
-    GENERAL_QUERY  = "general_query"    # ⑦ 일반 coverage 질문 (위 카테고리 미해당)
     CLARIFY        = "clarify"          # 슬롯 부족 → 재질문
     BLOCKED        = "blocked"          # 안전 필터 차단
 
@@ -64,6 +63,14 @@ class InsuranceState(TypedDict):
 
     # ── 최종 응답 (각 파이프라인 노드 또는 generate_node 에서 설정) ─
     answer         : str        # 클라이언트에 전달할 최종 응답 텍스트
+    
+    # 클라이언트에 전달할 최종 응답
+    sources: list
+    claim_form: list
+    compare_table: dict
+    related_questions: list
+    comparison_criteria: list
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -89,6 +96,13 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         nhis_step     = "eligibility_check",
         nhis_eligible = None,
         answer        = "",
+        
+        # 클라이언트에 전달할 최종 응답
+        sources=[],
+        claim_form=[],
+        compare_table={},
+        related_questions=[],
+        comparison_criteria=[],
     )
 
 
@@ -96,8 +110,6 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
 # DocumentMetadata — ChromaDB 메타데이터 표준
 # ※ 모든 ingest.py 가 반드시 따라야 하는 스키마
 # ──────────────────────────────────────────────────────────────
-
-
 class DocumentMetadata(TypedDict):
     insurer      : str   # "uhcg" | "cigna" | "tricare" | "msh_china" | "nhis"
     source_type  : str   # "pdf" | "pdf_table" | "web"
