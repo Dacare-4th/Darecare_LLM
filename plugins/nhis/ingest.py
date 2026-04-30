@@ -26,7 +26,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # ──────────────────────────────────────────
 
 # 여기랑 밑에 save_json() 함수 바꾸면 됨!!!
-OUTPUT_DIR   = "./data/nhis/processed"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+OUTPUT_DIR   = BASE_DIR / "data/output/nhis"
 
 CURRENT_YEAR = str(date.today().year)
 INSURER      = "nhis"
@@ -483,6 +484,11 @@ def ingest_pdf() -> list[dict]:
 # 메인 실행
 # ──────────────────────────────────────────
 
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from utils.ingest_to_db import ingest
+
+
 def run():
 
     print("=" * 50)
@@ -490,8 +496,9 @@ def run():
     print(f"출력 위치: {OUTPUT_DIR}")
     print("=" * 50)
 
-    ingest_web()
-    ingest_pdf()
+    web_chunks = [c for r in ingest_web() for c in r["chunks"]]
+    pdf_chunks = [c for r in ingest_pdf() for c in r["chunks"]]
+    ingest(web_chunks + pdf_chunks)
 
     output_files = list(Path(OUTPUT_DIR).glob("*.json"))
     print("\n" + "=" * 50)

@@ -53,6 +53,7 @@ vectordb/
 # 전처리된 파일들
 data/nhis/processed/
 data/cigna/processed/
+*.json
 
 # NHIS 임시 임베딩 파일
 scripts/upload_nhis_to_db.py

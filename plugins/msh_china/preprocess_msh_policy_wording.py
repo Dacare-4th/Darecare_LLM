@@ -18,6 +18,9 @@ import argparse
 import re, json, fitz
 from pathlib import Path
 from typing import List, Tuple, Optional
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
 
 # ── 공통 유틸 ────────────────────────────────────────────────────────────────
 
@@ -40,9 +43,9 @@ def read_pdf_pages(pdf_path):
 
 def build_metadata(page, section=None, subsection=None, section_title=None, chunk_type="section_text"):
     m = {
-        "insurer":             "MSH International",         
+        "insurer":             "msh_china",         
         "doc_type":            "policy_wording",
-        "source":              "MSH_-_Health_-_First_Expat__Health_-_Policy_Wording.pdf",
+        "source":              "MSH-Health-First Expat Health-Policy Wording.pdf",
         "page":                page,
         "is_latest":           True,
         "plan":                "FIRST'EXPAT+ / RELAIS'EXPAT+",  # 실제 플랜명
@@ -256,12 +259,12 @@ def main():
     parser = argparse.ArgumentParser(description="MSH Policy Wording 전처리 → JSON (v3)")
     parser.add_argument(
         "--pdf", type=Path,
-        default=Path("data/raw/msh/MSH_-_Health_-_First_Expat__Health_-_Policy_Wording.pdf"),
+        default= BASE_DIR / "data" / "msh" / "MSH-Health-First Expat Health-Policy Wording.pdf",
         help="PDF 파일 경로"
     )
     parser.add_argument(
         "--output-dir", type=Path,
-        default=Path("data/chunks"),
+        default= BASE_DIR / "data" / "outputs" / "msh" / "policy wording",
         help="JSON 출력 디렉토리"
     )
     args = parser.parse_args()
@@ -271,6 +274,10 @@ def main():
         return
 
     chunks = chunk_policy_wording(args.pdf)
+    import sys
+    sys.path.append(str(BASE_DIR))
+    from utils.ingest_to_db import ingest
+    ingest(chunks)
 
     if not chunks:
         print("[ERROR] 생성된 청크 없음")

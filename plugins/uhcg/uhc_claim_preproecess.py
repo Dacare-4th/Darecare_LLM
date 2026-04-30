@@ -5,7 +5,7 @@ import fitz
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CLAIM_DIR = BASE_DIR / "data" / "uhc" / "claim"
-OUTPUT_DIR = BASE_DIR / "outputs" / "claim"
+OUTPUT_DIR = BASE_DIR / "data" / "output" / "uhcg" / "uhc_claim_form"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

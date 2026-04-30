@@ -8,11 +8,11 @@ from langchain_community.document_loaders import PyMuPDFLoader
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 GUIDE_DIR = BASE_DIR / "data" / "uhc" / "guide"
-OUTPUT_DIR = BASE_DIR / "outputs" / "guide"
+OUTPUT_DIR = BASE_DIR / "data" / "output" / "uhcg" / "uhcg_guide"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-INSURER = "UnitedHealthcare Global"
+INSURER = "uhcg"
 IS_LATEST = True
 
 
@@ -458,6 +458,9 @@ def save_chunks(chunks, file_name):
 
     return output_path
 
+import sys
+sys.path.append(str(BASE_DIR))
+from utils.ingest_to_db import ingest
 
 def main():
     global guide_files
@@ -495,6 +498,7 @@ def main():
     all_guide_chunks.extend(faq_chunks)
 
     save_chunks(all_guide_chunks, "uhc_guide_all_chunks.json")
+    ingest(all_guide_chunks)
 
 
 if __name__ == "__main__":

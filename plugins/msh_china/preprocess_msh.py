@@ -24,13 +24,13 @@ import fitz  # PyMuPDF
 # 경로 설정
 # ---------------------------------------------------------------------------
 BASE_DIR   = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = BASE_DIR / "data" / "mhs"
-
+DATA_DIR = BASE_DIR / "data" / "msh"
+OUTPUT_DIR = BASE_DIR / "data" / "output" / "msh" 
 # Member Guide 좌측 사이드바 제거 x 기준 (pt)
 # --debug-sidebar 로 실제 값 확인 후 조정
 SIDEBAR_X_THRESHOLD = 140.0
 
-INSURER = "MSH"
+INSURER = "msh_china"
 
 # ---------------------------------------------------------------------------
 # 파일 목록
@@ -514,7 +514,7 @@ def preprocess(
 def save_chunks(
     chunks: List[Dict[str, Any]],
     output_dir: Path,
-    filename: str = "msh_chunks.json",
+    filename: str = "msh_guide_claim_form_chunk.json",
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / filename
@@ -562,13 +562,26 @@ def main():
         guide_path = DATA_DIR / "MSH_Members_Guide.pdf"
         debug_sidebar(guide_path)
         return
-
     chunks = preprocess()
+    description_chunks = [          
+            {
+            "chunk_id": "msh_china_claim_form_description",
+            "content": "MSH International Health Care Claim Form. Used to request reimbursement for medical expenses. Requires original receipts and medical reports.",
+            "metadata": {
+                "insurer": "msh_china",
+                "doc_type": "claim_form",
+                "source": "MSH_Claim_Form.pdf",
+                "page": 1,
+                "language": "en",
+                "plan": "all",
+            }
+        },
+    ]
+    chunks.extend(description_chunks)
+    save_chunks(chunks, args.output_dir)  # 이것도 추가
     import sys
     sys.path.append(str(BASE_DIR))
     from utils.ingest_to_db import ingest
-
-    chunks = preprocess()
     ingest(chunks)
 
     print(f"\n[SUMMARY]")

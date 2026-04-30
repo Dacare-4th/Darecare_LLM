@@ -17,8 +17,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # ──────────────────────────────────────────
 # 설정
 # ──────────────────────────────────────────
-
-OUTPUT_DIR = "./data/cigna/processed"
+BASE_DIR = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = str(BASE_DIR / "data" / "cigna" / "processed")
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
@@ -33,75 +33,75 @@ splitter = RecursiveCharacterTextSplitter(
 PDF_SOURCES = [
     # Benefits_Summary
     {
-        "path":     "./data/cigna/Benefits_Summary/591116 Cigna_Global_International_Health_Plans_Benefits_Summary_USD_EN_0523.pdf",
+        "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116 Cigna_Global_International_Health_Plans_Benefits_Summary_USD_EN_0523.pdf",
         "doc_type": "benefits_summary",
         "year":     "2023",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Benefits_Summary/591116 Cigna Global Benefits Summary USD_EN_0924.pdf",
+        "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116 Cigna Global Benefits Summary USD_EN_0924.pdf",
         "doc_type": "benefits_summary",
         "year":     "2024",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Benefits_Summary/591116-cigna-global-benefits-summary-usd_en_02_2025.pdf",
+        "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116-cigna-global-benefits-summary-usd_en_02_2025.pdf",
         "doc_type": "benefits_summary",
         "year":     "2025",
         "is_latest": True,
     },
     # Customer_Guide
     {
-        "path":     "./data/cigna/Customer_Guide/200008 CGHO Customer Guide EN_05_2019.pdf",
+        "path":     BASE_DIR / "data/cigna/Customer_Guide/200008 CGHO Customer Guide EN_05_2019.pdf",
         "doc_type": "customer_guide",
         "year":     "2019",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Customer_Guide/591048 CGHO Customer Guide EN_05_2022.pdf",
+        "path":     BASE_DIR / "data/cigna/Customer_Guide/591048 CGHO Customer Guide EN_05_2022.pdf",
         "doc_type": "customer_guide",
         "year":     "2022",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Customer_Guide/591048-cgho-customer-guide-en_05_2023.pdf",
+        "path":     BASE_DIR / "data/cigna/Customer_Guide/591048-cgho-customer-guide-en_05_2023.pdf",
         "doc_type": "customer_guide",
         "year":     "2023",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Customer_Guide/Cigna-Global-Health-Options-Customer-Guide_02_2026.pdf",
+        "path":     BASE_DIR / "data/cigna/Customer_Guide/Cigna-Global-Health-Options-Customer-Guide_02_2026.pdf",
         "doc_type": "customer_guide",
         "year":     "2026",
         "is_latest": True,
     },
     # Policy_Rules
     {
-        "path":     "./data/cigna/Policy_Rules/200008 CGHO Customer Guide EN_05_2019.pdf",
+        "path":     BASE_DIR / "data/cigna/Policy_Rules/200008 CGHO Customer Guide EN_05_2019.pdf",
         "doc_type": "policy_rules",
         "year":     "2019",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Policy_Rules/CGHO Policy Rules CGIC NA_EN_05_2023.pdf",
+        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC NA_EN_05_2023.pdf",
         "doc_type": "policy_rules",
         "year":     "2023",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2024.pdf",
+        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2024.pdf",
         "doc_type": "policy_rules",
         "year":     "2024",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2025.pdf",
+        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2025.pdf",
         "doc_type": "policy_rules",
         "year":     "2025",
         "is_latest": False,
     },
     {
-        "path":     "./data/cigna/Policy_Rules/CGHP Policy Rules CGIC EN 02_2026.pdf",
+        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHP Policy Rules CGIC EN 02_2026.pdf",
         "doc_type": "policy_rules",
         "year":     "2026",
         "is_latest": True,
@@ -333,6 +333,7 @@ def load_pdf_cigna(source: dict) -> dict:
 def ingest_pdf():
     print("[Cigna PDF] 전처리 시작")
     total_chunks = total_tables = processed = 0
+    all_chunks: list[dict] = []
 
     for source in PDF_SOURCES:
         path     = source["path"]
@@ -350,6 +351,7 @@ def ingest_pdf():
 
         n_chunks = len(result["chunks"])
         n_tables = len(result["tables"])
+        all_chunks.extend(result["chunks"])
         print(f"  → 청크 {n_chunks}개 / 표 {n_tables}개")
 
         save_json(result, f"cigna_{doc_type}_{year}.json")
@@ -370,13 +372,51 @@ def ingest_pdf():
         size = os.path.getsize(os.path.join(OUTPUT_DIR, f)) // 1024
         print(f"  {f} ({size} KB)")
 
+    return all_chunks
+    
+   
 
 # ──────────────────────────────────────────
 # 진입점
 # ──────────────────────────────────────────
 
+
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from utils.ingest_to_db import ingest
+
 def run():
-    ingest_pdf()
+    all_chunks = ingest_pdf()
+    description_chunks = [
+        {
+          "text": "Cigna Dental claim form. Required when the member has paid for dental treatment out of pocket and wants reimbursement from Cigna — this is the reimbursement claim procedure for dental expenses. Applies to all dental treatments covered under the optional International Dental benefit: preventative care (check-ups, X-rays, scaling), minor treatments (fillings, root canals, extractions), and major treatments (crowns, bridges, periodontal surgery, dentures, inlays). Not used for medical or vision claims (use the separate Medical and Vision claim form). The treating dentist must complete the treatment code section with procedure codes, number of units, dates and charges, and sign and stamp the form. Submit together with original dental invoice and payment receipt. Submitted by the member, not the dental clinic.",
+          "metadata": {
+            "insurer": "cigna",
+            "doc_type": "claim_form",
+            "form_type": "dental",
+            "source_type": "form",
+            "language": "en",
+            "is_latest": True,
+            "file_name": "592094_GIH_Dental_claim_form_EN_1125.pdf",
+            "file_path": "data/cigna/claim_forms/592094_GIH_Dental_claim_form_EN_1125.pdf"
+          }
+        },
+        {
+          "text": "Cigna Medical and Vision claim form. Required when the member has already paid for treatment out of pocket and wants reimbursement from Cigna — this is the reimbursement claim procedure (as opposed to direct billing, where the hospital bills Cigna directly). Typical situations: outpatient consultations, prescribed drugs, diagnostic tests, physiotherapy, vision expenses (eye test, prescription glasses, contact lenses), or any treatment at a non-network hospital where direct billing was not arranged, including emergency cases where the member paid first. Not used for dental treatment (use the separate Dental claim form). The treating physician must complete and sign Section D with diagnosis and treatment details. Submit together with original hospital invoice and payment receipt within 12 months of treatment date. Submitted by the member, not the hospital.",
+          "metadata": {
+            "insurer": "cigna",
+            "doc_type": "claim_form",
+            "form_type": "medical_vision",
+            "source_type": "form",
+            "language": "en",
+            "is_latest": True,
+            "file_name": "591797_Medical_and_Vision_claim_form_EN_1125.pdf",
+            "file_path": "data/cigna/claim_forms/591797_Medical_and_Vision_claim_form_EN_1125.pdf"
+          }
+        }
+    ]
+    all_chunks.extend(description_chunks)
+    ingest(all_chunks)
 
 
 if __name__ == "__main__":

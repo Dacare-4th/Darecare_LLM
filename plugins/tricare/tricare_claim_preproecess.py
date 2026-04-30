@@ -32,7 +32,7 @@ PDF = [
 
 
 COMMON_METADATA = {
-    "insurer": "TRICARE",
+    "insurer": "tricare",
     "is_latest": True,
     "language": "en",
     "plan": None,
@@ -240,6 +240,9 @@ def preprocess_pdf(config: dict) -> list[dict]:
 
     return results
 
+import sys
+sys.path.append(str(BASE_DIR))
+from utils.ingest_to_db import ingest
 
 def main():
     all_sections = []
@@ -248,7 +251,7 @@ def main():
         sections = preprocess_pdf(config)
         all_sections.extend(sections)
 
-    output_path = BASE_DIR / "outputs" / "json_docs" / "tricare_forms.json"
+    output_path = BASE_DIR / "data" / "output" / "tricare" /"tricare_forms.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w", encoding="utf-8") as f:
@@ -259,6 +262,15 @@ def main():
 
     for item in all_sections:
         print(item["source"], "|", item["section_id"], "|", len(item["text"]))
+    chunks = [
+        {
+            "chunk_id": f"tricare_{s['section_id']}",
+            "text": s["text"],
+            "metadata": {k: v for k, v in s.items() if k != "text"},
+        }
+        for s in all_sections
+    ]
+    ingest(chunks)
 
 
 if __name__ == "__main__":
