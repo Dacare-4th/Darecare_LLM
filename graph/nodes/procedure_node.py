@@ -1,18 +1,19 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # graph/nodes/procedure_node.py
-# 역할 : 일반 보험 절차를 안내한다 (retrieve + generate 통합)
+# 역할 : 보험사 약관 기반 절차를 안내한다 (retrieve + generate 통합)
 #
 # 파이프라인: ④ 절차 안내
 # 진입 조건 : analyze_node 에서 intent == "procedure"
+#             (insurer 슬롯이 확정된 상태로 진입)
 # 다음 노드  : END
 #
 # 흐름:
-#   1. general_guidelines 컬렉션에서 RAG 검색
+#   1. {insurer}_plans 컬렉션에서 RAG 검색
 #   2. 단계별 절차 프롬프트 조립
 #   3. LLM 으로 단계별 안내 + 필요 서류 목록 생성
 #
-# 참고: 기존 retrieve_node → generate_node 2단계를 이 노드 하나로 통합
-#       (절차 특화 프롬프트 사용을 위해)
+# 참고: insurer 는 analyze_node 에서 항상 확정되므로
+#       general_guidelines 컬렉션은 사용하지 않는다.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from __future__ import annotations
@@ -60,33 +61,23 @@ def procedure(state: InsuranceState) -> dict:
     slots    = state.get("slots", {})
 
     # ── Step 1: RAG 검색 ───────────────────────────────────────
-    # 보험사 전용 컬렉션 + 일반 가이드라인 컬렉션 동시 검색
-    general_docs  = query_collection(
-        collection_name = "general_guidelines",
+    # insurer 는 analyze_node 에서 항상 확정되므로 전용 컬렉션만 검색
+    docs = query_collection(
+        collection_name = f"{insurer}_plans",
         query           = user_msg,
-        top_k           = 4,
+        top_k           = 5,
     )
-    insurer_docs: list[dict] = []
-    if insurer and insurer not in ("nhis", ""):
-        insurer_docs = query_collection(
-            collection_name = f"{insurer}_plans",
-            query           = user_msg,
-            top_k           = 3,
-        )
-
-    # 보험사 전용 문서 우선 + 일반 가이드라인 합산
-    all_docs = insurer_docs + general_docs
 
     # ── Step 2: LLM 단계별 절차 생성 ──────────────────────────
     answer = call_llm_with_docs(
         user_query     = user_msg,
-        retrieved_docs = all_docs,
+        retrieved_docs = docs,
         language       = language,
         extra_context  = slots,
         system_prompt  = _PROCEDURE_SYSTEM_PROMPT,
     )
 
     return {
-        "retrieved_docs": all_docs,
+        "retrieved_docs": docs,
         "answer"        : answer,
     }
