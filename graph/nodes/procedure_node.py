@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs
+from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection
 from utils.schemas import InsuranceState
 
@@ -52,8 +52,10 @@ def procedure(state: InsuranceState) -> dict:
         slots        : 추출된 슬롯 (treatment, plan 등)
 
     반환 dict (InsuranceState 업데이트):
-        retrieved_docs : 검색된 절차 문서 리스트
-        answer         : 단계별 절차 안내 + 필요 서류 목록
+        retrieved_docs    : 검색된 절차 문서 리스트
+        answer            : 단계별 절차 안내 + 필요 서류 목록
+        sources           : 참조 문서 출처 리스트
+        related_questions : 연관 질문 리스트
     """
     user_msg = state["user_message"]
     language = state.get("language", "en")
@@ -77,7 +79,16 @@ def procedure(state: InsuranceState) -> dict:
         system_prompt  = _PROCEDURE_SYSTEM_PROMPT,
     )
 
+    sources           = _build_sources(docs)
+    related_questions = _call_llm_for_related_questions(
+        user_query = user_msg,
+        answer     = answer,
+        language   = language,
+    )
+
     return {
-        "retrieved_docs": docs,
-        "answer"        : answer,
+        "retrieved_docs"   : docs,
+        "answer"           : answer,
+        "sources"          : sources,
+        "related_questions": related_questions,
     }

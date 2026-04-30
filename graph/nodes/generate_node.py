@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 from openai import OpenAI
@@ -25,6 +26,11 @@ Answer the user's question based ONLY on the provided reference documents.
 If the documents do not contain enough information, say so clearly.
 Always cite which document your answer is based on.
 Keep your answer concise and structured."""
+
+_RELATED_QUESTIONS_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
+Based on the user's question and the answer provided, generate exactly 3 follow-up questions
+the user might want to ask next. Return ONLY a JSON array of 3 strings, nothing else.
+Example: ["Question 1?", "Question 2?", "Question 3?"]"""
 
 _LANGUAGE_INSTRUCTION = {
     "ko": "반드시 한국어로 답변하세요. 답변은 공백 포함 최대 1500자 이내로 작성하세요.",
@@ -53,15 +59,32 @@ def generate(state: InsuranceState) -> dict:
         slots          : 추출된 슬롯 (추가 컨텍스트로 활용)
 
     반환 dict (InsuranceState 업데이트):
-        answer : 생성된 최종 응답 텍스트
+        answer             : 생성된 최종 응답 텍스트
+        sources            : 참조 문서 출처 리스트
+        related_questions  : 연관 질문 리스트
     """
+    retrieved_docs = state.get("retrieved_docs", [])
+
     answer = call_llm_with_docs(
         user_query     = state["user_message"],
-        retrieved_docs = state.get("retrieved_docs", []),
+        retrieved_docs = retrieved_docs,
         language       = state.get("language", "en"),
         extra_context  = state.get("slots", {}),
     )
-    return {"answer": answer}
+
+    sources = _build_sources(retrieved_docs)
+
+    related_questions = _call_llm_for_related_questions(
+        user_query = state["user_message"],
+        answer     = answer,
+        language   = state.get("language", "en"),
+    )
+
+    return {
+        "answer"            : answer,
+        "sources"           : sources,
+        "related_questions" : related_questions,
+    }
 
 
 # ──────────────────────────────────────────────────────────────
@@ -153,3 +176,69 @@ def _format_source(metadata: dict) -> str:
         page = metadata.get("page", "")
         return f"PDF | {metadata.get('file_name', '')} | p.{page}"
     return metadata.get("file_name", "unknown")
+
+
+def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
+    """
+    retrieved_docs 메타데이터를 sources 스키마로 변환한다.
+
+    document_name 은 항상 포함되며, source_type 에 따라 추가 필드를 선택적으로 포함한다.
+        - pdf / pdf_table : page, section (topic)
+        - web             : url, topic
+    """
+    sources = []
+    for doc in retrieved_docs[:7]:
+        meta        = doc.get("metadata", {})
+        source_type = meta.get("source_type", "")
+        source: dict = {"document_name": meta.get("file_name", "unknown")}
+
+        if source_type in ("pdf", "pdf_table"):
+            if meta.get("page"):
+                source["page"] = meta["page"]
+            if meta.get("topic"):
+                source["section"] = meta["topic"]
+        elif source_type == "web":
+            if meta.get("url"):
+                source["url"] = meta["url"]
+            if meta.get("topic"):
+                source["topic"] = meta["topic"]
+
+        sources.append(source)
+    return sources
+
+
+def _call_llm_for_related_questions(
+    user_query: str,
+    answer    : str,
+    language  : str,
+) -> list[str]:
+    """
+    answer 를 바탕으로 연관 질문 3개를 생성한다. (별도 LLM 호출)
+
+    Returns:
+        연관 질문 문자열 리스트. 오류 시 빈 리스트 반환.
+    """
+    lang_inst    = _LANGUAGE_INSTRUCTION.get(language, "Please respond in English.")
+    user_content = (
+        f"User question: {user_query}\n\n"
+        f"Answer: {answer}\n\n"
+        f"Generate 3 follow-up questions. {lang_inst}\n"
+        f'Return ONLY a JSON array like: ["Q1?", "Q2?", "Q3?"]'
+    )
+
+    try:
+        client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model       = "gpt-4o",
+            messages    = [
+                {"role": "system", "content": _RELATED_QUESTIONS_SYSTEM_PROMPT},
+                {"role": "user",   "content": user_content},
+            ],
+            max_tokens  = 300,
+            temperature = 0.7,
+        )
+        raw = response.choices[0].message.content.strip()
+        return json.loads(raw)
+
+    except Exception:
+        return []

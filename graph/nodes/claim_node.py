@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs
+from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection
 from utils.schemas import InsuranceState
 
@@ -71,8 +71,10 @@ def claim(state: InsuranceState) -> dict:
         nhis_step    : "claim_link" 이면 NHIS 연계 청구 플로우
 
     반환 dict (InsuranceState 업데이트):
-        retrieved_docs : 검색된 청구 절차 문서
-        answer         : 청구 절차 안내 + 필요 서류 목록 + 양식 안내
+        retrieved_docs    : 검색된 청구 절차 문서
+        answer            : 청구 절차 안내 + 필요 서류 목록 + 양식 안내
+        sources           : 참조 문서 출처 리스트
+        related_questions : 연관 질문 리스트
     """
     user_msg  = state["user_message"]
     language  = state.get("language", "en")
@@ -126,9 +128,18 @@ def claim(state: InsuranceState) -> dict:
     form_info = _get_form_info(insurer, language)
     final_answer = f"{procedure_answer}\n\n{form_info}"
 
+    sources           = _build_sources(all_docs)
+    related_questions = _call_llm_for_related_questions(
+        user_query = user_msg,
+        answer     = final_answer,
+        language   = language,
+    )
+
     return {
-        "retrieved_docs": all_docs,
-        "answer"        : final_answer,
+        "retrieved_docs"   : all_docs,
+        "answer"           : final_answer,
+        "sources"          : sources,
+        "related_questions": related_questions,
     }
 
 

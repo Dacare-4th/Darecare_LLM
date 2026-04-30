@@ -19,6 +19,7 @@ class Intent:
     PROCEDURE      = "procedure"        # ④ 일반 절차 안내
     NHIS           = "nhis"             # ⑤ NHIS 상담
     CLAIM          = "claim"            # ⑥ 청구 절차 + 양식
+    GENERAL_QUERY  = "general_query"    # ⑦ 일반 보장·혜택 질의
     CLARIFY        = "clarify"          # 슬롯 부족 → 재질문
     BLOCKED        = "blocked"          # 안전 필터 차단
 

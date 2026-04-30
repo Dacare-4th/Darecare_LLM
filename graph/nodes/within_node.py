@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs
+from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection
 from utils.comparison import build_comparison_prompt, merge_docs_for_comparison, rerank_by_relevance
 from utils.schemas import InsuranceState
@@ -45,8 +45,10 @@ def within(state: InsuranceState) -> dict:
         slots        : {"plan": "플랜명"} 등 추출된 슬롯
 
     반환 dict (InsuranceState 업데이트):
-        retrieved_docs : 검색된 문서 리스트
-        answer         : 비교표가 포함된 최종 응답
+        retrieved_docs    : 검색된 문서 리스트
+        answer            : 비교표가 포함된 최종 응답
+        sources           : 참조 문서 출처 리스트
+        related_questions : 연관 질문 리스트
     """
     user_msg = state["user_message"]
     insurer  = state.get("insurer", "")
@@ -110,7 +112,16 @@ def within(state: InsuranceState) -> dict:
         system_prompt  = _WITHIN_SYSTEM_PROMPT,
     )
 
+    sources           = _build_sources(all_retrieved)
+    related_questions = _call_llm_for_related_questions(
+        user_query = user_msg,
+        answer     = answer,
+        language   = language,
+    )
+
     return {
-        "retrieved_docs": all_retrieved,
-        "answer"        : answer,
+        "retrieved_docs"   : all_retrieved,
+        "answer"           : answer,
+        "sources"          : sources,
+        "related_questions": related_questions,
     }

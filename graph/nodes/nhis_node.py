@@ -23,7 +23,7 @@ import os
 
 from openai import OpenAI
 
-from graph.nodes.generate_node import call_llm_with_docs
+from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection
 from utils.schemas import InsuranceState
 
@@ -82,11 +82,13 @@ def nhis(state: InsuranceState) -> dict:
         slots         : 추출된 슬롯
 
     반환 dict (InsuranceState 업데이트):
-        nhis_step     : 업데이트된 대화 단계
-        nhis_eligible : 자격 확인 결과 (업데이트 시)
-        retrieved_docs: 검색된 NHIS 문서
-        answer        : 이번 턴의 응답 텍스트
-        intent        : "claim" 으로 변경 (민간보험 연계 감지 시)
+        nhis_step         : 업데이트된 대화 단계
+        nhis_eligible     : 자격 확인 결과 (업데이트 시)
+        retrieved_docs    : 검색된 NHIS 문서
+        answer            : 이번 턴의 응답 텍스트
+        intent            : "claim" 으로 변경 (민간보험 연계 감지 시)
+        sources           : 참조 문서 출처 리스트
+        related_questions : 연관 질문 리스트
     """
     user_msg      = state["user_message"]
     language      = state.get("language", "en")
@@ -96,12 +98,21 @@ def nhis(state: InsuranceState) -> dict:
     # ── 민간보험 연계 감지 ─────────────────────────────────────
     # 어느 단계에서든 민간보험 청구 의도 감지 시 claim_node 로 이동
     if _wants_private_claim(user_msg):
-        docs = query_collection("claim_procedures", user_msg, top_k=3)
+        docs              = query_collection("claim_procedures", user_msg, top_k=3)
+        bridge_answer     = _claim_bridge_message(language)
+        sources           = _build_sources(docs)
+        related_questions = _call_llm_for_related_questions(
+            user_query = user_msg,
+            answer     = bridge_answer,
+            language   = language,
+        )
         return {
-            "nhis_step"    : "claim_link",
-            "intent"       : "claim",           # builder 가 다음 분기 결정에 사용
-            "retrieved_docs": docs,
-            "answer"       : _claim_bridge_message(language),
+            "nhis_step"        : "claim_link",
+            "intent"           : "claim",       # builder 가 다음 분기 결정에 사용
+            "retrieved_docs"   : docs,
+            "answer"           : bridge_answer,
+            "sources"          : sources,
+            "related_questions": related_questions,
         }
 
     # ── 단계별 처리 ────────────────────────────────────────────
@@ -145,22 +156,32 @@ def _handle_eligibility(user_msg: str, language: str) -> dict:
         response_text  = result.get("response", "")       # 사용자에게 보낼 메시지
 
         # 자격 판단 완료 → 다음 단계로 전환
-        next_step = "info" if is_eligible is not None else "eligibility_check"
+        next_step         = "info" if is_eligible is not None else "eligibility_check"
+        related_questions = _call_llm_for_related_questions(
+            user_query = user_msg,
+            answer     = response_text,
+            language   = language,
+        )
 
         return {
-            "nhis_step"    : next_step,
-            "nhis_eligible": is_eligible,
-            "retrieved_docs": [],
-            "answer"       : response_text,
+            "nhis_step"        : next_step,
+            "nhis_eligible"    : is_eligible,
+            "retrieved_docs"   : [],
+            "answer"           : response_text,
+            "sources"          : [],            # 자격 확인 단계는 RAG 검색 없음
+            "related_questions": related_questions,
         }
 
     except Exception:
         # JSON 파싱 오류 등 — 자격 확인 질문으로 fallback
+        fallback_answer = _eligibility_fallback(language)
         return {
-            "nhis_step"    : "eligibility_check",
-            "nhis_eligible": None,
-            "retrieved_docs": [],
-            "answer"       : _eligibility_fallback(language),
+            "nhis_step"        : "eligibility_check",
+            "nhis_eligible"    : None,
+            "retrieved_docs"   : [],
+            "answer"           : fallback_answer,
+            "sources"          : [],
+            "related_questions": [],
         }
 
 
@@ -198,10 +219,19 @@ def _handle_info(
         system_prompt  = _NHIS_INFO_SYSTEM_PROMPT,
     )
 
+    sources           = _build_sources(docs)
+    related_questions = _call_llm_for_related_questions(
+        user_query = user_msg,
+        answer     = answer,
+        language   = language,
+    )
+
     return {
-        "nhis_step"    : "info",
-        "retrieved_docs": docs,
-        "answer"       : answer,
+        "nhis_step"        : "info",
+        "retrieved_docs"   : docs,
+        "answer"           : answer,
+        "sources"          : sources,
+        "related_questions": related_questions,
     }
 
 
