@@ -388,7 +388,8 @@ from utils.ingest_to_db import ingest
 def run():
     all_chunks = ingest_pdf()
     description_chunks = [
-        {
+        { 
+          "chunk_id": "cigna_claim_form_dental_description",
           "text": "Cigna Dental claim form. Required when the member has paid for dental treatment out of pocket and wants reimbursement from Cigna — this is the reimbursement claim procedure for dental expenses. Applies to all dental treatments covered under the optional International Dental benefit: preventative care (check-ups, X-rays, scaling), minor treatments (fillings, root canals, extractions), and major treatments (crowns, bridges, periodontal surgery, dentures, inlays). Not used for medical or vision claims (use the separate Medical and Vision claim form). The treating dentist must complete the treatment code section with procedure codes, number of units, dates and charges, and sign and stamp the form. Submit together with original dental invoice and payment receipt. Submitted by the member, not the dental clinic.",
           "metadata": {
             "insurer": "cigna",
@@ -401,7 +402,8 @@ def run():
             "file_path": "data/cigna/claim_forms/592094_GIH_Dental_claim_form_EN_1125.pdf"
           }
         },
-        {
+        { 
+          "chunk_id": "cigna_claim_form_medical_vision_description",
           "text": "Cigna Medical and Vision claim form. Required when the member has already paid for treatment out of pocket and wants reimbursement from Cigna — this is the reimbursement claim procedure (as opposed to direct billing, where the hospital bills Cigna directly). Typical situations: outpatient consultations, prescribed drugs, diagnostic tests, physiotherapy, vision expenses (eye test, prescription glasses, contact lenses), or any treatment at a non-network hospital where direct billing was not arranged, including emergency cases where the member paid first. Not used for dental treatment (use the separate Dental claim form). The treating physician must complete and sign Section D with diagnosis and treatment details. Submit together with original hospital invoice and payment receipt within 12 months of treatment date. Submitted by the member, not the hospital.",
           "metadata": {
             "insurer": "cigna",
