@@ -5,9 +5,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 scripts = [
-    BASE_DIR / "tricare" / "tricare_claim_preproecess.py",
-    BASE_DIR / "uhcg" / "uhc_guide_preproecess.py",
-    BASE_DIR / "uhcg" / "uhc_claim_preproecess.py",
+    BASE_DIR / "tricare" / "tricare_claim_preprocess.py",
+    BASE_DIR / "uhcg" / "uhc_guide_preprocess.py",
+    BASE_DIR / "uhcg" / "uhc_claim_preprocess.py",
     BASE_DIR / "nhis" / "ingest.py",
     BASE_DIR / "msh_china" / "preprocess_msh.py",
     BASE_DIR / "msh_china" / "preprocess_msh_policy_wording.py",
