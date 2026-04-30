@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from utils.schemas import InsuranceState
 
@@ -83,11 +84,17 @@ def query_collection(
         컬렉션이 없거나 오류 시 빈 리스트 반환
     """
     try:
+        embedding_fn = SentenceTransformerEmbeddingFunction(
+            model_name = "BAAI/bge-m3",  # ingest 시 사용한 모델과 반드시 동일해야 함
+        )
         client     = chromadb.PersistentClient(
             path     = VECTORDB_PATH,
             settings = Settings(anonymized_telemetry=False),
         )
-        collection = client.get_collection(collection_name)
+        collection = client.get_collection(
+            name               = collection_name,
+            embedding_function = embedding_fn,
+        )
 
         # 메타데이터 필터 포함 여부에 따라 쿼리 분기
         query_kwargs: dict = {
