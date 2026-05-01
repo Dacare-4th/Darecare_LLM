@@ -3,36 +3,41 @@ tricare_ingest.py
 ─────────────────
 TRICARE 벡터 DB 구축 전용 스크립트
 
-위치: src/tricare/tricare_ingest.py
+위치: plugins/tricare/tricare_ingest.py
 
 경로는 모두 이 파일 위치 기준으로 자동 계산됨.
 DATA_DIR, DB 경로 등을 수동으로 수정할 필요 없음.
 
 프로젝트 구조 (자동 인식):
-    INSURANCE_BENEFIT_CHATBOT/     <- BASE_DIR (루트)
-    ├── data/raw/tricare/          <- DATA_DIR  (PDF/CSV 여기)
-    ├── src/tricare/
+    Darecare_LLM/                  <- BASE_DIR (루트)
+    ├── data/tricare/guide/        <- DATA_DIR  (PDF/CSV 여기)
+    ├── plugins/tricare/
     │   └── tricare_ingest.py      <- 이 파일
-    ├── vectordb/tricare/          <- DB 저장 위치
+    ├── vectordb/                  <- DB 저장 위치 (tricare_plans 컬렉션)
     └── .env
 
-실행 방법 (src/tricare/ 폴더 안에서 OR 어디서든):
-    python src/tricare/tricare_ingest.py --reload   # 전체 재구축 (권장)
-    python src/tricare/tricare_ingest.py            # 증분 추가
+실행 방법:
+    python plugins/tricare/tricare_ingest.py        # 증분 추가
+    python plugins/ingest_all.py                    # 전체 보험사 일괄 실행
+
+# 05.01 - ingest_to_db 방식으로 통합
+# 기존: langchain Chroma를 직접 사용 → vectordb/tricare/ 별도 디렉토리에 저장
+#       (tricare_rag, tricare_cost_tables 컬렉션)
+# 변경: ingest_to_db.ingest() 사용 → vectordb/에 tricare_plans 컬렉션으로 저장
+# 이유: retrieve_node.py가 {insurer}_plans 패턴 컬렉션만 조회하므로
+#       기존 방식으로는 guide 데이터가 within_node 검색에 포함되지 않음
 """
 
 from __future__ import annotations
 
-import os
 import re
 import csv
-import shutil
 import argparse
-from math import ceil
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 import json
+import sys
 
 import fitz          # PyMuPDF  (pip install pymupdf)
 import pdfplumber    # (pip install pdfplumber)
@@ -41,30 +46,20 @@ from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+# plugins/tricare/tricare_ingest.py
+#   .parents[0] → plugins/tricare/
+#   .parents[1] → plugins/
+#   .parents[2] → Darecare_LLM/  (루트)
+BASE_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = BASE_DIR / "data" / "tricare" / "guide"
 
-
-# src/tricare/tricare_ingest.py
-#   .parent       → src/tricare/
-#   .parent.parent → src/
-#   .parent.parent.parent → INSURANCE_BENEFIT_CHATBOT/  (루트)
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 프로젝트 루트
-
-DATA_DIR     = BASE_DIR / "data" / "tricare" / "guide"     # PDF/CSV 위치
-DB_TEXT_DIR  = BASE_DIR / "vectordb" / "tricare" / "tricare_text"   # 텍스트+CSV DB
-DB_TABLE_DIR = BASE_DIR / "vectordb" / "tricare" / "tricare_table"  # 표 전용 DB
-
-COLLECTION_TEXT  = "tricare_rag"
-COLLECTION_TABLE = "tricare_cost_tables"
+# 05.01 - ingest_to_db import (cigna/ingest.py와 동일한 방식)
+sys.path.append(str(BASE_DIR))
+from utils.ingest_to_db import ingest as ingest_to_db
 
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 
-
-EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "BAAI/bge-m3")
-EMBED_DEVICE     = os.getenv("EMBED_DEVICE", "cpu")
-EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))
-INDEX_BATCH_SIZE = int(os.getenv("INDEX_BATCH_SIZE", "100"))
 
 MIN_CHUNK_CHARS = 80   # PDF 단락 최소 길이 — 헤더/페이지번호 노이즈 제거
 
@@ -307,8 +302,6 @@ def check_files() -> None:
     print("[ 경로 확인 ]")
     print(f"  BASE_DIR : {BASE_DIR}")
     print(f"  DATA_DIR : {DATA_DIR}")
-    print(f"  DB_TEXT  : {DB_TEXT_DIR}")
-    print(f"  DB_TABLE : {DB_TABLE_DIR}")
 
     print("\n  [ RAG PDF ]")
     for f in RAG_PDF_FILES:
@@ -356,15 +349,16 @@ def load_pdf_chunks() -> List[Document]:
             kept_pages.append(Document(
                 page_content=cleaned,
                 metadata={
-                    "insurer":    "TRICARE",
-                    "doc_type":   file_info.get("doc_type", "handbook"),
-                    "source":     fname,
-                    "page":       i + 1,
-                    "is_latest":  file_info.get("is_latest", True),
-                    "language":   "en",
-                    "plan":       file_info.get("plan", "all"),
-                    "location":   location,
-                    "chunk_type": "text",
+                    "insurer":        "TRICARE",
+                    "doc_type":       file_info.get("doc_type", "handbook"),
+                    "document_group": "guide",
+                    "source":         fname,
+                    "page":           i + 1,
+                    "is_latest":      file_info.get("is_latest", True),
+                    "language":       "en",
+                    "plan":           file_info.get("plan", "all"),
+                    "location":       location,
+                    "chunk_type":     "text",
                 }
             ))
 
@@ -408,15 +402,16 @@ def _load_csv_mental(path: Path) -> List[Document]:
             docs.append(Document(
                 page_content=f"서비스: {service}\n내용: {content}",
                 metadata={
-                    "insurer":       "TRICARE",
-                    "doc_type":      meta["doc_type"],
-                    "source":        path.name,
-                    "page":          0,
-                    "is_latest":     True,
-                    "language":      "en",
-                    "plan":          meta["plan"],
-                    "chunk_type":    meta["chunk_type"],
-                    "service_name":  service,
+                    "insurer":        "TRICARE",
+                    "doc_type":       meta["doc_type"],
+                    "document_group": "guide",
+                    "source":         path.name,
+                    "page":           0,
+                    "is_latest":      True,
+                    "language":       "en",
+                    "plan":           meta["plan"],
+                    "chunk_type":     meta["chunk_type"],
+                    "service_name":   service,
                 }
             ))
     return docs
@@ -434,14 +429,15 @@ def _load_csv_costs(path: Path) -> List[Document]:
             docs.append(Document(
                 page_content=content,
                 metadata={
-                    "insurer":    "TRICARE",
-                    "doc_type":   meta["doc_type"],
-                    "source":     path.name,
-                    "page":       0,
-                    "is_latest":  True,
-                    "language":   "en",
-                    "plan":       meta["plan"],
-                    "chunk_type": meta["chunk_type"],
+                    "insurer":        "TRICARE",
+                    "doc_type":       meta["doc_type"],
+                    "document_group": "guide",
+                    "source":         path.name,
+                    "page":           0,
+                    "is_latest":      True,
+                    "language":       "en",
+                    "plan":           meta["plan"],
+                    "chunk_type":     meta["chunk_type"],
                 }
             ))
     return docs
@@ -460,14 +456,15 @@ def _load_csv_plans(path: Path) -> List[Document]:
             docs.append(Document(
                 page_content=f"플랜명: {plan_name}\n내용: {content}",
                 metadata={
-                    "insurer":    "TRICARE",
-                    "doc_type":   meta["doc_type"],
-                    "source":     path.name,
-                    "page":       0,
-                    "is_latest":  True,
-                    "language":   "en",
-                    "plan":       plan_name or meta["plan"],
-                    "chunk_type": meta["chunk_type"],
+                    "insurer":        "TRICARE",
+                    "doc_type":       meta["doc_type"],
+                    "document_group": "guide",
+                    "source":         path.name,
+                    "page":           0,
+                    "is_latest":      True,
+                    "language":       "en",
+                    "plan":           plan_name or meta["plan"],
+                    "chunk_type":     meta["chunk_type"],
                 }
             ))
     return docs
@@ -489,6 +486,7 @@ def _load_csv_exclusions(path: Path) -> List[Document]:
                 metadata={
                     "insurer":        "TRICARE",
                     "doc_type":       meta["doc_type"],
+                    "document_group": "guide",
                     "source":         path.name,
                     "page":           0,
                     "is_latest":      True,
@@ -560,15 +558,16 @@ def load_table_chunks() -> List[Document]:
                     all_chunks.append(Document(
                         page_content=table_text,
                         metadata={
-                            "insurer":    "TRICARE",
-                            "doc_type":   "cost_table",
-                            "source":     fname,
-                            "page":       page_num,
-                            "is_latest":  file_info.get("is_latest", True),
-                            "language":   "en",
-                            "plan":       file_info.get("plan", "all"),
-                            "location":   file_info["location"],
-                            "chunk_type": "table",
+                            "insurer":        "TRICARE",
+                            "doc_type":       "cost_table",
+                            "document_group": "guide",
+                            "source":         fname,
+                            "page":           page_num,
+                            "is_latest":      file_info.get("is_latest", True),
+                            "language":       "en",
+                            "plan":           file_info.get("plan", "all"),
+                            "location":       file_info["location"],
+                            "chunk_type":     "table",
                         }
                     ))
                     table_count += 1
@@ -586,141 +585,43 @@ def load_table_chunks() -> List[Document]:
     return all_chunks
 
 
-# JSONL 저장
+# 05.01 - ingest_to_db 통합을 위한 변환 + 진입점
 
-def export_jsonl(
-    text_docs: List[Document],
-    table_docs: List[Document],
-    output_path: Path,
-) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    all_docs = text_docs + table_docs
-    with output_path.open("w", encoding="utf-8") as f:
-        for doc in all_docs:
-            record = {
-                "text":     doc.page_content,
-                "metadata": doc.metadata,
-            }
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    print(f"[INFO] JSONL 저장 완료: {output_path} ({len(all_docs)}개 청크)")
-    print(f"       텍스트 청크: {len(text_docs)}개 | 표 청크: {len(table_docs)}개")
+def docs_to_chunks(documents: List[Document]) -> list:
+    """
+    langchain Document 리스트 → ingest_to_db.ingest() 입력 형식으로 변환.
 
-
-# 임베딩 / 벡터 저장소
-
-def build_embeddings():
-    from langchain_huggingface import HuggingFaceEmbeddings
-    print(f"[INFO] 임베딩 모델 로드: {EMBED_MODEL_NAME} (device={EMBED_DEVICE})")
-    return HuggingFaceEmbeddings(
-        model_name=EMBED_MODEL_NAME,
-        model_kwargs={"device": EMBED_DEVICE},
-        encode_kwargs={"normalize_embeddings": True, "batch_size": EMBED_BATCH_SIZE},
-    )
+    ingest_to_db는 insurer 필드(소문자)로 컬렉션을 결정하므로
+    metadata의 "TRICARE" → "tricare" 로 변환한다.
+    """
+    chunks = []
+    for idx, doc in enumerate(documents):
+        meta       = doc.metadata.copy()
+        source_id  = re.sub(r"[^\w]", "_", meta.get("source", "unknown"))
+        page       = meta.get("page", 0)
+        chunk_type = meta.get("chunk_type", "text")
+        meta["insurer"] = "tricare"   # INSURER_TO_COLLECTION 매핑 키와 일치
+        chunks.append({
+            "chunk_id": f"tricare_{source_id}_{chunk_type}_{page}_{idx}",
+            "text"    : doc.page_content,
+            "metadata": meta,
+        })
+    return chunks
 
 
-def reset_vectordbs() -> None:
-    for db_dir in [DB_TEXT_DIR, DB_TABLE_DIR]:
-        if db_dir.exists():
-            print(f"[INFO] 기존 벡터DB 삭제: {db_dir}")
-            shutil.rmtree(db_dir, ignore_errors=True)
-
-
-def _index_to_store(
-    documents: List[Document], persist_directory: Path,
-    collection_name: str, embeddings, batch_size: int,
-):
-    if not documents:
-        print(f"[WARN] 인덱싱할 문서 없음: {collection_name}")
-        return None
-
-    from langchain_community.vectorstores import Chroma
-    vectordb    = None
-    num_batches = ceil(len(documents) / batch_size)
-
-    for i in range(num_batches):
-        start = i * batch_size
-        end   = min(start + batch_size, len(documents))
-        batch = documents[start:end]
-        print(f"[INFO] [{collection_name}] 배치 {i+1}/{num_batches} ({start}~{end-1})")
-
-        if vectordb is None:
-            vectordb = Chroma.from_documents(
-                documents=batch,
-                embedding=embeddings,
-                persist_directory=str(persist_directory),
-                collection_name=collection_name,
-            )
-        else:
-            vectordb.add_documents(batch)
-
-    if vectordb:
-        try:
-            vectordb.persist()
-        except Exception:
-            pass  # 최신 Chroma는 자동 persist
-
-    return vectordb
-
-
-def build_vectorstores(
-    reload: bool = False, batch_size: int = INDEX_BATCH_SIZE,
-):
-    if reload:
-        reset_vectordbs()
-
-    pdf_chunks = load_pdf_chunks()
-    csv_chunks = load_csv_chunks()
-    text_docs  = pdf_chunks + csv_chunks
-    table_docs = load_table_chunks()
-
-    print(f"\n[INFO] 텍스트 저장소 총 청크: {len(text_docs)}개")
-    print(f"[INFO] 표 저장소 총 청크:     {len(table_docs)}개")
-
-    embeddings = build_embeddings()
-
-    vs_text = _index_to_store(
-        text_docs, DB_TEXT_DIR, COLLECTION_TEXT, embeddings, batch_size
-    )
-    vs_table = _index_to_store(
-        table_docs, DB_TABLE_DIR, COLLECTION_TABLE, embeddings, batch_size
-    )
-
-    print("\n" + "=" * 60)
-    print("[DONE] 벡터 저장소 구축 완료")
-    if vs_text:
-        print(f"  tricare_text  (tricare_rag):         {vs_text._collection.count()}개")
-    if vs_table:
-        print(f"  tricare_table (tricare_cost_tables): {vs_table._collection.count()}개")
-    print(f"  저장 위치: {BASE_DIR / 'vectordb' / 'tricare'}")
-    print("=" * 60)
-
-    return vs_text, vs_table
-
-
-# 메인
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="TRICARE RAG 벡터스토어 구축")
-    parser.add_argument("--reload", action="store_true",
-                        help="기존 DB 삭제 후 전체 재구축 (권장)")
-    parser.add_argument("--export-json", action="store_true",
-                        help="전처리 결과를 JSONL 파일로 내보내기")
-    parser.add_argument("--json-output", type=str,
-                        default=str(DATA_DIR / "tricare_chunks.jsonl"),
-                        help="JSONL 출력 경로 (기본: data/raw/tricare/tricare_chunks.jsonl)")
-    args = parser.parse_args()
-
+def run() -> None:
+    """plugins/ingest_all.py 진입점 — tricare_plans 컬렉션에 저장"""
     check_files()
 
-    if args.export_json:
-        pdf_chunks   = load_pdf_chunks()
-        csv_chunks   = load_csv_chunks()
-        table_chunks = load_table_chunks()
-        text_docs    = pdf_chunks + csv_chunks
-        export_jsonl(text_docs, table_chunks, Path(args.json_output))
-    else:
-        build_vectorstores(reload=args.reload, batch_size=INDEX_BATCH_SIZE)
+    pdf_chunks   = load_pdf_chunks()
+    csv_chunks   = load_csv_chunks()
+    table_chunks = load_table_chunks()
+
+    all_docs = pdf_chunks + csv_chunks + table_chunks
+    print(f"\n[tricare] 총 청크: {len(all_docs)}개 (PDF+CSV+표)")
+
+    ingest_to_db(docs_to_chunks(all_docs))
 
 
 if __name__ == "__main__":
-    main()
+    run()
