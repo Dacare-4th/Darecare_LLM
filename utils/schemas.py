@@ -22,6 +22,7 @@ class Intent:
     GENERAL_QUERY  = "general_query"    # ⑦ 일반 보장·혜택 질의
     CLARIFY        = "clarify"          # 슬롯 부족 → 재질문
     BLOCKED        = "blocked"          # 안전 필터 차단
+    RECOMMENDATION = "recommendation"   # 보험 추천/상품 선택/법적·의학적 판단 요청 → 안내 불가
 
 
 # ──────────────────────────────────────────────────────────────

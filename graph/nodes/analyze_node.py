@@ -32,6 +32,11 @@ from utils.safety import check_blocked
 from utils.schemas import InsuranceState, Intent
 
 # ──────────────────────────────────────────────────────────────
+# 상수
+# ──────────────────────────────────────────────────────────────
+_MAX_MESSAGE_LENGTH = 500
+
+# ──────────────────────────────────────────────────────────────
 # Intent Router 시스템 프롬프트
 # ──────────────────────────────────────────────────────────────
 _INTENT_SYSTEM_PROMPT = """You are an intent classifier and slot extractor for a health insurance assistant.
@@ -45,6 +50,9 @@ Supported intents:
 - claim           : User wants to know about claim procedures or needs a claim form
 - general_query   : General coverage or benefit inquiry that does not fit any category above
                     (e.g. "Is mental health covered?", "Does my plan cover dental?")
+- recommendation  : User asks for insurance product recommendations, asks the AI to choose a plan,
+                    or requests legal/medical final judgments (e.g. "어떤 보험이 좋아?", "이 보험 들어야 해?",
+                    "내 증상은 어떤 병이야?", "소송에서 이길 수 있어?")
 - clarify         : Not enough information to determine intent (ask user for more info)
 
 Supported insurer codes: uhcg, cigna, tricare, msh_china
@@ -95,6 +103,19 @@ def analyze(state: InsuranceState) -> dict:
     """
     user_msg = state["user_message"]
 
+    # ── Step 0: 메시지 길이 검증 (최대 500자) ─────────────────
+    if len(user_msg) > _MAX_MESSAGE_LENGTH:
+        return {
+            "intent" : Intent.BLOCKED,
+            "intents": [Intent.BLOCKED],
+            "answer" : (
+                f"질문은 최대 {_MAX_MESSAGE_LENGTH}자까지 입력 가능합니다. "
+                f"현재 {len(user_msg)}자입니다.\n\n"
+                f"Your message exceeds the {_MAX_MESSAGE_LENGTH}-character limit "
+                f"({len(user_msg)} chars)."
+            ),
+        }
+
     # ── Step 1: 안전 필터 ──────────────────────────────────────
     blocked_msg = check_blocked(user_msg)
     if blocked_msg:
@@ -112,6 +133,25 @@ def analyze(state: InsuranceState) -> dict:
 
     intents  = analysis.get("intents", [Intent.CLARIFY])
     primary  = intents[0] if intents else Intent.CLARIFY
+
+    # ── Step 4: 추천/법적·의학적 판단 요청 차단 ───────────────
+    if primary == Intent.RECOMMENDATION:
+        return {
+            "language"     : language,
+            "intent"       : Intent.RECOMMENDATION,
+            "intents"      : intents,
+            "insurer"      : analysis.get("insurer", ""),
+            "insurers"     : analysis.get("insurers", []),
+            "slots"        : analysis.get("slots", {}),
+            "missing_slots": analysis.get("missing_slots", []),
+            "answer"       : (
+                "죄송합니다. 보험 상품 추천, 플랜 선택 권유, 법적·의학적 최종 판단은 제공하지 않습니다. "
+                "보험 혜택·절차·청구 등 구체적인 질문을 해주세요.\n\n"
+                "Sorry, we do not provide insurance product recommendations, plan selection advice, "
+                "or legal/medical final judgments. "
+                "Please ask about coverage details, procedures, or claims."
+            ),
+        }
 
     return {
         "language"     : language,
@@ -153,7 +193,8 @@ def _run_intent_router(user_msg: str) -> dict:
         valid_intents = {
             Intent.WITHIN_COMPARE, Intent.CROSS_COMPARE,
             Intent.CALCULATION, Intent.PROCEDURE,
-            Intent.NHIS, Intent.CLAIM, Intent.GENERAL_QUERY, Intent.CLARIFY,
+            Intent.NHIS, Intent.CLAIM, Intent.GENERAL_QUERY,
+            Intent.RECOMMENDATION, Intent.CLARIFY,
         }
         result["intents"] = [
             i for i in result.get("intents", []) if i in valid_intents

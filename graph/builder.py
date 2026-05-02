@@ -74,6 +74,7 @@ def route_after_analyze(state: InsuranceState) -> str:
         Intent.GENERAL_QUERY  : "general",
         Intent.CLARIFY        : "clarify",
         Intent.BLOCKED        : END,       # 안전 필터 차단 → 즉시 종료
+        Intent.RECOMMENDATION : END,       # 추천/법적·의학적 판단 요청 → 즉시 종료
     }
 
     return routing_map.get(intent, "clarify")
