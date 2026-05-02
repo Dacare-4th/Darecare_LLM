@@ -138,9 +138,14 @@ def analyze(state: InsuranceState) -> dict:
 
     # ── Step 3: Intent Router (LLM) ────────────────────────────
     analysis = _run_intent_router(user_msg)
-    print("[DEBUG] analysis raw:", analysis)    # test_graph.py 확인용 필요시 주석 처리
-    intents  = analysis.get("intents", [Intent.CLARIFY])
-    primary  = intents[0] if intents else Intent.CLARIFY
+
+    request_insurer = _normalize_insurer(state.get("insurer", ""))
+    analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
+
+    final_insurer = request_insurer or analysis_insurer
+
+    intents = analysis.get("intents", [Intent.CLARIFY])
+    primary = intents[0] if intents else Intent.CLARIFY
 
     # ── Step 4: 추천/법적·의학적 판단 요청 차단 ───────────────
     if primary == Intent.RECOMMENDATION:
@@ -148,7 +153,7 @@ def analyze(state: InsuranceState) -> dict:
             "language"     : language,
             "intent"       : Intent.RECOMMENDATION,
             "intents"      : intents,
-            "insurer"      : analysis.get("insurer", ""),
+            "insurer"      : final_insurer,
             "insurers"     : analysis.get("insurers", []),
             "slots"        : analysis.get("slots", {}),
             "missing_slots": analysis.get("missing_slots", []),
@@ -165,7 +170,7 @@ def analyze(state: InsuranceState) -> dict:
         "language"     : language,
         "intent"       : primary,
         "intents"      : intents,
-        "insurer"      : analysis.get("insurer", ""),
+        "insurer"      : final_insurer,
         "insurers"     : analysis.get("insurers", []),
         "slots"        : analysis.get("slots", {}),
         "missing_slots": analysis.get("missing_slots", []),
@@ -219,3 +224,20 @@ def _run_intent_router(user_msg: str) -> dict:
             "slots"        : {},
             "missing_slots": [],
         }
+
+def _normalize_insurer(insurer: str) -> str:
+    insurer = (insurer or "").lower().strip()
+
+    aliases = {
+        "uhc": "uhcg",
+        "uhcg": "uhcg",
+        "cigna": "cigna",
+        "tricare": "tricare",
+        "msh": "msh_china",
+        "msh china": "msh_china",
+        "msh_china": "msh_china",
+        "nhis": "nhis",
+        "compare": "compare",
+    }
+
+    return aliases.get(insurer, insurer)
