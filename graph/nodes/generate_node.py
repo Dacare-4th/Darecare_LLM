@@ -32,6 +32,7 @@ Based on the user's question and the answer provided, generate exactly 3 follow-
 the user might want to ask next. Return ONLY a JSON array of 3 strings, nothing else.
 Example: ["Question 1?", "Question 2?", "Question 3?"]"""
 
+# 답변 생성용 언어 지시문 (글자 수 제한 포함)
 _LANGUAGE_INSTRUCTION = {
     "ko": "반드시 한국어로 답변하세요. 답변은 공백 포함 최대 1500자 이내로 작성하세요.",
     "en": "Please respond in English. Keep your response within 1500 characters including spaces.",
@@ -40,6 +41,17 @@ _LANGUAGE_INSTRUCTION = {
     "fr": "Répondez en français. Limitez votre réponse à 1500 caractères espaces compris.",
     "de": "Bitte antworten Sie auf Deutsch. Halten Sie Ihre Antwort auf maximal 1500 Zeichen inkl. Leerzeichen.",
     "es": "Por favor, responda en español. Limite su respuesta a 1500 caracteres incluyendo espacios.",
+}
+
+# 연관 질문 생성용 언어 지시문 (질문 생성 맥락에 맞게 별도 관리)
+_RELATED_QUESTIONS_LANGUAGE_INSTRUCTION = {
+    "ko": "반드시 한국어로 질문을 작성하세요.",
+    "en": "Write the questions in English.",
+    "ja": "必ず日本語で質問を作成してください。",
+    "zh": "请用中文撰写问题。",
+    "fr": "Rédigez les questions en français.",
+    "de": "Schreiben Sie die Fragen auf Deutsch.",
+    "es": "Escriba las preguntas en español.",
 }
 
 
@@ -218,11 +230,12 @@ def _call_llm_for_related_questions(
     Returns:
         연관 질문 문자열 리스트. 오류 시 빈 리스트 반환.
     """
-    lang_inst    = _LANGUAGE_INSTRUCTION.get(language, "Please respond in English.")
+    lang_inst  = _RELATED_QUESTIONS_LANGUAGE_INSTRUCTION.get(language, "Write the questions in English.")
+    sys_prompt = _RELATED_QUESTIONS_SYSTEM_PROMPT + f"\n\n{lang_inst}"
+
     user_content = (
         f"User question: {user_query}\n\n"
         f"Answer: {answer}\n\n"
-        f"Generate 3 follow-up questions. {lang_inst}\n"
         f'Return ONLY a JSON array like: ["Q1?", "Q2?", "Q3?"]'
     )
 
@@ -231,7 +244,7 @@ def _call_llm_for_related_questions(
         response = client.chat.completions.create(
             model       = "gpt-4o",
             messages    = [
-                {"role": "system", "content": _RELATED_QUESTIONS_SYSTEM_PROMPT},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user",   "content": user_content},
             ],
             max_tokens  = 300,
