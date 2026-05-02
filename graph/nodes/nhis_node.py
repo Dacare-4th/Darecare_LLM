@@ -71,7 +71,8 @@ Always mention: "For the most up-to-date information, please visit nhis.or.kr or
 _PRIVATE_INSURANCE_KEYWORDS = [
     "민간보험", "개인보험", "실손", "실비", "private insurance",
     "supplemental", "additional claim", "secondary claim",
-    "나머지", "추가 청구", "잔액",
+    "나머지", "추가 청구", "잔액", "청구", "청구서", "cigna", "uhcg", "tricare", "msh",
+    "claim form", "after nhis"
 ]
 
 
