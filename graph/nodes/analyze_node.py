@@ -125,8 +125,10 @@ def analyze(state: InsuranceState) -> dict:
         }
 
     request_insurer = _normalize_insurer(state.get("insurer", ""))
-    if(request_insurer == "") :
-        user_msg += state.get("comparison_criteria", "")
+    if request_insurer == "":
+        criteria = state.get("comparison_criteria") or []
+        if criteria:
+            user_msg += " " + " ".join(criteria)
     # ── Step 1: 안전 필터 ──────────────────────────────────────
     blocked_msg = check_blocked(user_msg)
     if blocked_msg:
