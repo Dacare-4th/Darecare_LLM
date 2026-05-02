@@ -62,7 +62,7 @@ scripts/upload_nhis_to_db.py
 .env
 
 # LangGraph 체크포인트 DB
-checkpoints.db
+checkpoints.db*
 *.db
 
 # Jupyter
@@ -80,4 +80,4 @@ finetuning/output/
 # test 파일
 test_compare.py
 test_graph.py
-test_within.py
+test_within.pycheckpoints.db*

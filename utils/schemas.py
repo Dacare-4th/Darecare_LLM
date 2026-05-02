@@ -63,6 +63,7 @@ class InsuranceState(TypedDict):
     nhis_step      : str        # NHIS 대화 단계
                                 # "eligibility_check" | "info" | "claim_link" | "done"
     nhis_eligible  : Optional[bool]  # 자격 확인 결과 (None = 미확인)
+    nhis_history   : list       # NHIS 대화 이력 [{"role": "user"|"assistant", "content": str}, ...]
 
     # ── 최종 응답 (각 파이프라인 노드 또는 generate_node 에서 설정) ─
     answer         : str        # 클라이언트에 전달할 최종 응답 텍스트
@@ -98,6 +99,7 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         calc_result   = {},
         nhis_step     = "eligibility_check",
         nhis_eligible = None,
+        nhis_history  = [],
         answer        = "",
         
         # 클라이언트에 전달할 최종 응답

@@ -124,6 +124,9 @@ def analyze(state: InsuranceState) -> dict:
             ),
         }
 
+    request_insurer = _normalize_insurer(state.get("insurer", ""))
+    if(request_insurer == "") :
+        user_msg += state.get("comparison_criteria", "")
     # ── Step 1: 안전 필터 ──────────────────────────────────────
     blocked_msg = check_blocked(user_msg)
     if blocked_msg:
@@ -136,45 +139,77 @@ def analyze(state: InsuranceState) -> dict:
     # ── Step 2: 언어 감지 ──────────────────────────────────────
     language = detect_language(user_msg)
 
+    # ── Step 2-1: NHIS 대화 진행 중 short-circuit ─────────────
+    # 아래 두 경우 LLM 재분류 없이 바로 nhis 라우팅
+    #   ① nhis_step == "eligibility_check" + nhis_history 비어있지 않음
+    #      이유: "E-7 비자예요", "회사 다녀요" 같은 맥락 답변을
+    #            intent router가 단독으로 보면 clarify로 오분류하기 때문
+    #   ② nhis_step == "info"
+    #      이유: 자격 확인 완료 후 NHIS 정보 질문(보험료·급여 등)을
+    #            intent router가 procedure/general_query로 오분류하기 때문
+    nhis_step = state.get("nhis_step")
+    if (nhis_step == "info"
+            or (nhis_step == "eligibility_check" and state.get("nhis_history"))):
+        return {
+            "language"     : language,
+            "intent"       : Intent.NHIS,
+            "intents"      : [Intent.NHIS],
+            "insurer"      : state.get("insurer", ""),
+            "insurers"     : state.get("insurers", []),
+            "slots"        : state.get("slots", {}),
+            "missing_slots": [],
+        }
+
     # ── Step 3: Intent Router (LLM) ────────────────────────────
     analysis = _run_intent_router(user_msg)
-    print("[DEBUG] analysis raw:", analysis)    # test_graph.py 확인용 필요시 주석 처리
-    intents  = analysis.get("intents", [Intent.CLARIFY])
-    primary  = intents[0] if intents else Intent.CLARIFY
+    
+    analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
 
-    # 1. 기본 정보 세팅
-    update_dict = {
-        "language": language,
-        "intent": primary,
-        "intents": intents,
+    # 🔥 request.insurer == "compare"이면 compare_node로 강제 라우팅
+    if request_insurer == "compare":
+        return {
+            "language": language,
+            "intent": Intent.CROSS_COMPARE,
+            "intents": [Intent.CROSS_COMPARE],
+            "insurer": "compare",
+            "insurers": ["uhcg", "cigna", "tricare", "msh_china"],
+            "slots": analysis.get("slots", {}),
+            "missing_slots": [],
+        }
+
+    final_insurer = request_insurer or analysis_insurer
+
+    intents = analysis.get("intents", [Intent.CLARIFY])
+    primary = intents[0] if intents else Intent.CLARIFY
+
+    # ── Step 4: 추천/법적·의학적 판단 요청 차단 ───────────────
+    if primary == Intent.RECOMMENDATION:
+        return {
+            "language"     : language,
+            "intent"       : Intent.RECOMMENDATION,
+            "intents"      : intents,
+            "insurer"      : final_insurer,
+            "insurers"     : analysis.get("insurers", []),
+            "slots"        : analysis.get("slots", {}),
+            "missing_slots": analysis.get("missing_slots", []),
+            "answer"       : (
+                "죄송합니다. 보험 상품 추천, 플랜 선택 권유, 법적·의학적 최종 판단은 제공하지 않습니다. "
+                "보험 혜택·절차·청구 등 구체적인 질문을 해주세요.\n\n"
+                "Sorry, we do not provide insurance product recommendations, plan selection advice, "
+                "or legal/medical final judgments. "
+                "Please ask about coverage details, procedures, or claims."
+            ),
+        }
+
+    return {
+        "language"     : language,
+        "intent"       : primary,
+        "intents"      : intents,
+        "insurer"      : final_insurer,
+        "insurers"     : analysis.get("insurers", []),
+        "slots"        : analysis.get("slots", {}),
         "missing_slots": analysis.get("missing_slots", []),
     }
-
-    # 2. 보험사 정보가 있을 때만 추가
-    new_insurer = analysis.get("insurer")
-    if new_insurer:
-        update_dict["insurer"] = new_insurer
-
-    # 3. 복수 보험사 정보가 있을 때만 추가
-    new_insurers = analysis.get("insurers")
-    if new_insurers:
-        update_dict["insurers"] = new_insurers
-
-# 4. 슬롯 정보가 비어있지 않을 때만 추가/업데이트
-    new_slots = analysis.get("slots")
-    if new_slots:
-        # 기존 state에 저장되어 있던 slots를 복사해옵니다.
-        # (state에 slots가 아예 없을 수도 있으니 {}를 기본값으로 설정합니다.)
-        updated_slots = state.get("slots", {}).copy()
-        
-        # 새로운 슬롯 데이터 중 값이 있는 것(빈 문자열이 아닌 것)만 골라 기존 슬롯에 덮어씁니다.
-        for key, value in new_slots.items():
-            if value:  # 값이 존재할 때만 (예: "", 0, None이 아닐 때)
-                updated_slots[key] = value
-                
-        update_dict["slots"] = updated_slots
-
-    return update_dict
 
 # ──────────────────────────────────────────────────────────────
 # 내부 함수
@@ -223,3 +258,20 @@ def _run_intent_router(user_msg: str) -> dict:
             "slots"        : {},
             "missing_slots": [],
         }
+
+def _normalize_insurer(insurer: str) -> str:
+    insurer = (insurer or "").lower().strip()
+
+    aliases = {
+        "uhc": "uhcg",
+        "uhcg": "uhcg",
+        "cigna": "cigna",
+        "tricare": "tricare",
+        "msh": "msh_china",
+        "msh china": "msh_china",
+        "msh_china": "msh_china",
+        "nhis": "nhis",
+        "compare": "compare",
+    }
+
+    return aliases.get(insurer, insurer)

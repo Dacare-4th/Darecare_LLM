@@ -113,8 +113,8 @@ def ingest(chunks: list) -> None:
         chunks: [{"chunk_id": str, "content"|"text": str, "metadata": dict}, ...]
     """
     # FIXED ABOVE 위에 수정, content, text 둘다 설명
-
-
+    import os
+    print(f"\n[DEBUG] 현재 절대 경로: {os.path.abspath(CHROMA_PATH)}")
     print(f"[INFO] 청크 수: {len(chunks)}")
 
     collection_name = resolve_collection_name(chunks)
@@ -125,8 +125,13 @@ def ingest(chunks: list) -> None:
     col    = get_collection(client, collection_name)
 
     # 중복 방지
-    existing_ids = set(col.get(include=[])["ids"])
-    new_chunks   = [c for c in chunks if c["chunk_id"] not in existing_ids]
+    try:
+        existing_ids = set(col.get(include=[])["ids"])
+        new_chunks   = [c for c in chunks if c["chunk_id"] not in existing_ids]
+    except Exception as e:
+        print(f"[WARN] 기존 인덱스 로드 실패(깨짐 예상): {e}")
+        print("[INFO] 강제로 모든 청크를 신규로 처리합니다.")
+        new_chunks = chunks  # 에러 나면 그냥 다 새로 넣기
     print(f"[INFO] 신규: {len(new_chunks)}개 / 스킵: {len(chunks)-len(new_chunks)}개")
 
     if not new_chunks:
@@ -155,3 +160,17 @@ def ingest(chunks: list) -> None:
 
     print(f"\n[DONE] {uploaded}개 업로드 완료 → {CHROMA_PATH}{collection_name}")
     print(f"[INFO] 컬렉션 총 문서 수: {col.count()}")
+
+    # ChromaDB 1.5.x: 비동기 compactor가 HNSW 인덱스 빌드를 완료할 때까지 대기
+    first_text = new_chunks[0].get("content") or new_chunks[0].get("text", "")
+    first_emb  = embed_texts(model, [first_text])
+    print("[INFO] HNSW 인덱스 빌드 대기 중...")
+    for attempt in range(30):
+        try:
+            col.query(query_embeddings=first_emb, n_results=1, include=[])
+            print("[INFO] HNSW 인덱스 빌드 완료")
+            break
+        except Exception:
+            time.sleep(3)
+    else:
+        print("[WARN] HNSW 인덱스 빌드 타임아웃 - 첫 쿼리 시 지연될 수 있음")

@@ -104,7 +104,7 @@ def nhis(state: InsuranceState) -> dict:
     language      = state.get("language", "en")
     nhis_step     = state.get("nhis_step", "eligibility_check")
     nhis_eligible = state.get("nhis_eligible", None)
-    nhis_history  = state.get("nhis_history", [])
+    nhis_history  = state.get("nhis_history") or []
 
     # ── 민간보험 연계 감지 ─────────────────────────────────────
     # 어느 단계에서든 민간보험 청구 의도 감지 시 claim_node 로 이동
