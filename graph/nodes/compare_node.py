@@ -267,12 +267,22 @@ def _build_comparison_prompt(
         for ins in insurers
     ]
 
+    lang_instructions = {
+        "ko": "반드시 한국어로 답변하세요. 비교 기준이 영어로 주어져도 body 셀 내용과 answer는 한국어로 작성하세요.",
+        "ja": "必ず日本語で回答してください。",
+        "zh": "请用中文回答。",
+        "fr": "Répondez en français.",
+        "de": "Bitte antworten Sie auf Deutsch.",
+        "es": "Por favor, responda en español.",
+        "en": "Respond in English.",
+    }
+    lang_inst = lang_instructions.get(language, "Respond in English.")
+
     return f"""
+IMPORTANT: {lang_inst}
+
 User question:
 {user_query}
-
-Language:
-{language}
 
 Comparison criteria:
 {json.dumps(criteria, ensure_ascii=False)}
@@ -286,6 +296,7 @@ Retrieved documents grouped by insurer:
 Create compare_table.body rows in exactly the same order as comparison criteria.
 Each row must have exactly {len(header)} columns.
 Each row must start with the bold comparison criterion.
+All body cell content and answer MUST be in {language} language.
 
 Return JSON only.
 """

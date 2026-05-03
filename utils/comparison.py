@@ -98,7 +98,8 @@ def build_comparison_prompt(
 규칙:
 - header의 열 이름({', '.join(subjects)})을 그대로 유지하세요.
 - 각 항목에 대해 문서에 명시된 내용만 사용하고, 불확실한 경우 "정보 없음"으로 표시하세요.
-- answer도 반드시 {language} 언어로 작성하세요.
+- answer, body 셀 내용, related_questions는 반드시 {language} 언어로 작성하세요.
+- 비교 항목명(비교 기준)이 영어로 주어져도 답변 내용은 반드시 {language} 언어로 작성하세요.
 - related_questions는 반드시 3개로 작성하세요."""
 
     return prompt
