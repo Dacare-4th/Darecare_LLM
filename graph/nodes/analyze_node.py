@@ -130,8 +130,13 @@ def analyze(state: InsuranceState) -> dict:
     # ── Step 0: 메시지 길이 검증 (최대 500자) ─────────────────
     if len(user_msg) > _MAX_MESSAGE_LENGTH:
         return {
+            **response_reset,
             "intent" : Intent.BLOCKED,
             "intents": [Intent.BLOCKED],
+            "insurer": request_insurer,
+            "insurers": state.get("insurers", []),
+            "slots": state.get("slots", {}),
+            "missing_slots": [],
             "answer" : (
                 f"질문은 최대 {_MAX_MESSAGE_LENGTH}자까지 입력 가능합니다. "
                 f"현재 {len(user_msg)}자입니다.\n\n"
@@ -184,6 +189,7 @@ def analyze(state: InsuranceState) -> dict:
     if (nhis_step == "info"
             or (nhis_step == "eligibility_check" and state.get("nhis_history"))):
         return {
+            **response_reset,
             "language": language,
             "intent": Intent.NHIS,
             "intents": [Intent.NHIS],
@@ -213,6 +219,7 @@ def analyze(state: InsuranceState) -> dict:
         ]
         final_insurers = extracted_insurers if extracted_insurers else ["uhcg", "cigna", "tricare", "msh_china"]
         return {
+            **response_reset,
             "language": language,
             "intent": Intent.CROSS_COMPARE,
             "intents": [Intent.CROSS_COMPARE],
@@ -313,6 +320,7 @@ def _run_intent_router(user_msg: str, chat_history: list | None = None, current_
             "slots"        : {},
             "missing_slots": [],
         }
+
 
 def _recommendation_block_message(language: str) -> str:
     messages = {
