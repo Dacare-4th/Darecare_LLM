@@ -152,6 +152,7 @@ def compare(state: InsuranceState) -> dict:
         raw_response=raw_response,
         criteria=criteria,
         insurers=insurers,
+        language=language,
     )
 
     return {
@@ -337,17 +338,29 @@ def _call_llm_json(prompt: str) -> str:
         )
 
 
+_COMPARE_FALLBACK_ANSWER = {
+    "ko": "검색된 보험 문서를 바탕으로 비교 결과를 제공합니다.",
+    "en": "Here is the comparison based on the retrieved insurance documents.",
+    "ja": "取得した保険書類に基づいて比較結果をご提供します。",
+    "zh": "以下是根据检索到的保险文件进行的比较结果。",
+    "fr": "Voici la comparaison basée sur les documents d'assurance récupérés.",
+    "de": "Hier ist der Vergleich basierend auf den abgerufenen Versicherungsdokumenten.",
+    "es": "Aquí está la comparación basada en los documentos de seguro recuperados.",
+}
+
+
 def _safe_parse_compare_response(
     raw_response: str,
     criteria: list[str],
     insurers: list[str],
+    language: str = "en",
 ) -> dict:
     try:
         parsed = json.loads(raw_response)
     except Exception:
         parsed = {}
 
-    answer = parsed.get("answer") or "Here is the comparison based on the retrieved insurance documents."
+    answer = parsed.get("answer") or _COMPARE_FALLBACK_ANSWER.get(language, _COMPARE_FALLBACK_ANSWER["en"])
     compare_table = parsed.get("compare_table") or {}
 
     if not isinstance(compare_table, dict):

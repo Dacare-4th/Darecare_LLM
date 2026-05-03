@@ -239,13 +239,7 @@ def analyze(state: InsuranceState) -> dict:
             "insurers": analysis.get("insurers", []),
             "slots": analysis.get("slots", {}),
             "missing_slots": analysis.get("missing_slots", []),
-            "answer": (
-                "죄송합니다. 보험 상품 추천, 플랜 선택 권유, 법적·의학적 최종 판단은 제공하지 않습니다. "
-                "보험 혜택·절차·청구 등 구체적인 질문을 해주세요.\n\n"
-                "Sorry, we do not provide insurance product recommendations, plan selection advice, "
-                "or legal/medical final judgments. "
-                "Please ask about coverage details, procedures, or claims."
-            ),
+            "answer": _recommendation_block_message(language),
         }
 
     return {
@@ -319,6 +313,19 @@ def _run_intent_router(user_msg: str, chat_history: list | None = None, current_
             "slots"        : {},
             "missing_slots": [],
         }
+
+def _recommendation_block_message(language: str) -> str:
+    messages = {
+        "ko": "죄송합니다. 보험 상품 추천, 플랜 선택 권유, 법적·의학적 최종 판단은 제공하지 않습니다. 보험 혜택·절차·청구 등 구체적인 질문을 해주세요.",
+        "en": "Sorry, we do not provide insurance product recommendations, plan selection advice, or legal/medical final judgments. Please ask about coverage details, procedures, or claims.",
+        "ja": "申し訳ありませんが、保険商品の推薦やプラン選択の勧誘、法的・医学的な最終判断は提供しておりません。保険の給付内容・手続き・請求などについて具体的にご質問ください。",
+        "zh": "抱歉，我们不提供保险产品推荐、计划选择建议或法律/医疗方面的最终判断。请就保障范围、流程或理赔等具体问题进行咨询。",
+        "fr": "Désolé, nous ne fournissons pas de recommandations de produits d'assurance, de conseils sur le choix de plan, ni de jugements légaux ou médicaux. Veuillez poser des questions spécifiques sur les garanties, procédures ou remboursements.",
+        "de": "Es tut uns leid, wir geben keine Empfehlungen für Versicherungsprodukte, Planauswahlberatung oder rechtliche/medizinische Urteile ab. Bitte stellen Sie konkrete Fragen zu Leistungen, Verfahren oder Ansprüchen.",
+        "es": "Lo sentimos, no ofrecemos recomendaciones de productos de seguro, asesoramiento sobre selección de planes ni juicios legales o médicos. Por favor, realice preguntas concretas sobre coberturas, procedimientos o reclamaciones.",
+    }
+    return messages.get(language, messages["en"])
+
 
 def _normalize_insurer(insurer: str) -> str:
     """

@@ -61,6 +61,8 @@ def general(state: InsuranceState) -> dict:
     user_msg      = state["user_message"]
     language      = state.get("language", "en")
     insurer       = state.get("insurer", "")
+    if insurer not in _ALL_INSURERS:
+        insurer = ""
     slots         = state.get("slots", {})
     chat_history  = state.get("chat_history", [])
     english_query = state.get("english_query", "") or user_msg

@@ -288,14 +288,13 @@ def _wants_private_claim(user_msg: str) -> bool:
 def _claim_bridge_message(language: str) -> str:
     """NHIS → 민간보험 청구 연계 안내 메시지"""
     messages = {
-        "ko": (
-            "NHIS 적용 후 민간보험 청구를 원하시는군요. "
-            "청구 절차와 필요 서류를 안내해 드리겠습니다."
-        ),
-        "en": (
-            "I'll help you with the private insurance claim after NHIS coverage. "
-            "Let me guide you through the claim procedure and required documents."
-        ),
+        "ko": "NHIS 적용 후 민간보험 청구를 원하시는군요. 청구 절차와 필요 서류를 안내해 드리겠습니다.",
+        "en": "I'll help you with the private insurance claim after NHIS coverage. Let me guide you through the claim procedure and required documents.",
+        "ja": "NHIS適用後の民間保険請求をご希望ですね。請求手続きと必要書類についてご案内いたします。",
+        "zh": "您希望在NHIS报销后进行商业保险理赔。我将为您介绍理赔流程和所需文件。",
+        "fr": "Vous souhaitez effectuer une demande auprès de votre assurance privée après la couverture NHIS. Je vais vous guider à travers la procédure de remboursement et les documents nécessaires.",
+        "de": "Sie möchten nach der NHIS-Deckung eine Privatversicherungsanspruch stellen. Ich führe Sie durch das Antragsverfahren und die erforderlichen Unterlagen.",
+        "es": "Desea realizar una reclamación al seguro privado tras la cobertura del NHIS. Le guiaré a través del procedimiento de reclamación y los documentos necesarios.",
     }
     return messages.get(language, messages["en"])
 
@@ -303,16 +302,13 @@ def _claim_bridge_message(language: str) -> str:
 def _eligibility_max_turn_message(language: str) -> str:
     """최대 턴 수 초과 시 info 단계로 넘어가며 보내는 안내 메시지"""
     messages = {
-        "ko": (
-            "정확한 자격 확인을 위해 추가 정보가 필요하지만, "
-            "일반적인 NHIS 정보를 먼저 안내해 드리겠습니다. "
-            "자세한 자격 확인은 NHIS 고객센터(1577-1000)에 문의해 주세요."
-        ),
-        "en": (
-            "I wasn't able to fully confirm your eligibility, "
-            "but let me provide general NHIS information. "
-            "For a detailed eligibility check, please contact NHIS at 1577-1000."
-        ),
+        "ko": "정확한 자격 확인을 위해 추가 정보가 필요하지만, 일반적인 NHIS 정보를 먼저 안내해 드리겠습니다. 자세한 자격 확인은 NHIS 고객센터(1577-1000)에 문의해 주세요.",
+        "en": "I wasn't able to fully confirm your eligibility, but let me provide general NHIS information. For a detailed eligibility check, please contact NHIS at 1577-1000.",
+        "ja": "資格を完全に確認できませんでしたが、一般的なNHIS情報をご提供いたします。詳細な資格確認はNHISコールセンター(1577-1000)にお問い合わせください。",
+        "zh": "无法完全确认您的资格，但我将提供一般性NHIS信息。如需详细资格核查，请联系NHIS客服中心(1577-1000)。",
+        "fr": "Je n'ai pas pu confirmer entièrement votre éligibilité, mais je vais vous fournir des informations générales sur le NHIS. Pour une vérification détaillée, veuillez contacter le NHIS au 1577-1000.",
+        "de": "Ich konnte Ihre Berechtigung nicht vollständig bestätigen, aber ich stelle Ihnen allgemeine NHIS-Informationen bereit. Für eine detaillierte Überprüfung wenden Sie sich bitte an das NHIS unter 1577-1000.",
+        "es": "No pude confirmar completamente su elegibilidad, pero le proporcionaré información general sobre el NHIS. Para una verificación detallada, contacte al NHIS en el 1577-1000.",
     }
     return messages.get(language, messages["en"])
 

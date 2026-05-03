@@ -24,7 +24,8 @@ from utils.schemas import InsuranceState
 _GENERATE_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
 Answer the user's question based ONLY on the provided reference documents.
 If the documents do not contain enough information, say so clearly.
-Keep your answer concise and structured."""
+Keep your answer concise and structured.
+When citing sources, always use the document filename shown after the '|' symbol, not the document number (e.g. use 'filename.pdf', not '문서 1')."""
 
 _RELATED_QUESTIONS_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
 Based on the user's question and the answer provided, generate exactly 3 follow-up questions
@@ -128,7 +129,8 @@ def call_llm_with_docs(
     lang_inst = _LANGUAGE_INSTRUCTION.get(language, "Please respond in English.")
 
     # ── 시스템 프롬프트 조립 ───────────────────────────────────
-    sys_prompt = (system_prompt or _GENERATE_SYSTEM_PROMPT) + f"\n\n{lang_inst}"
+    cite_inst  = "When citing sources, always use the document filename shown after the '|' symbol, not the document number (e.g. use 'filename.pdf', not '문서 1')."
+    sys_prompt = (system_prompt or _GENERATE_SYSTEM_PROMPT) + f"\n\n{lang_inst}\n{cite_inst}"
 
     # ── 참조 문서 블록 조립 ─────────────────────────────────────
     if retrieved_docs:
