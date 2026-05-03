@@ -48,9 +48,9 @@ def _normalize_insurer(insurer: str) -> str:
     insurer = (insurer or "").lower().strip()
 
     aliases = {
-        "uhc": "uhcg",
-        "uhcg": "uhcg",
-        "unitedhealth": "uhcg",
+        "uhc": "uhc",
+        "uhcg": "uhc",
+        "unitedhealth": "uhc",
         "cigna": "cigna",
         "tricare": "tricare",
         "msh china": "msh",
