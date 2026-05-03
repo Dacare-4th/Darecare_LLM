@@ -75,6 +75,9 @@ class InsuranceState(TypedDict):
     related_questions: list
     comparison_criteria: list
 
+    # 멀티턴 대화 이력 (intent router 컨텍스트용)
+    chat_history: list  # [{"role": "user"|"assistant", "content": str}, ...]
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -108,6 +111,7 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         compare_table={},
         related_questions=[],
         comparison_criteria=[],
+        chat_history=[],
     )
 
 

@@ -69,17 +69,24 @@ def clarify(state: InsuranceState) -> dict:
     user_msg      = state["user_message"]
     language      = state.get("language", "en")
     missing_slots = state.get("missing_slots", [])
+    chat_history  = state.get("chat_history", [])
 
     # ── 누락 슬롯이 명확한 경우 → 템플릿 재질문 ──────────────
     if missing_slots:
         first_missing = missing_slots[0]
         question      = _slot_question(first_missing, language)
         if question:
-            return {"answer": question}
+            return {
+                "answer"      : question,
+                "chat_history": chat_history + [{"role": "assistant", "content": question}],
+            }
 
     # ── 의도 자체가 불명확한 경우 → LLM 재질문 ───────────────
     answer = _llm_clarify(user_msg, language)
-    return {"answer": answer}
+    return {
+        "answer"      : answer,
+        "chat_history": chat_history + [{"role": "assistant", "content": answer}],
+    }
 
 
 # ──────────────────────────────────────────────────────────────

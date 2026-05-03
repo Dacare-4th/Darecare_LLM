@@ -177,7 +177,8 @@ def analyze(state: InsuranceState) -> dict:
         }
 
     # ── Step 3: Intent Router (LLM) ────────────────────────────
-    analysis = _run_intent_router(user_msg)
+    chat_history = state.get("chat_history", [])
+    analysis = _run_intent_router(user_msg, chat_history[-6:])
     
     analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
 
@@ -227,6 +228,7 @@ def analyze(state: InsuranceState) -> dict:
         "insurers": analysis.get("insurers", []),
         "slots": analysis.get("slots", {}),
         "missing_slots": analysis.get("missing_slots", []),
+        "chat_history": chat_history + [{"role": "user", "content": user_msg}],
     }
 
 
@@ -234,7 +236,7 @@ def analyze(state: InsuranceState) -> dict:
 # 내부 함수
 # ──────────────────────────────────────────────────────────────
 
-def _run_intent_router(user_msg: str) -> dict:
+def _run_intent_router(user_msg: str, chat_history: list | None = None) -> dict:
     """
     LLM 을 호출해 의도·슬롯을 추출한다.
 
@@ -242,12 +244,13 @@ def _run_intent_router(user_msg: str) -> dict:
     """
     try:
         client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        messages = [{"role": "system", "content": _INTENT_SYSTEM_PROMPT}]
+        if chat_history:
+            messages.extend(chat_history)
+        messages.append({"role": "user", "content": user_msg})
         response = client.chat.completions.create(
             model    = "gpt-4o-mini",
-            messages = [
-                {"role": "system", "content": _INTENT_SYSTEM_PROMPT},
-                {"role": "user",   "content": user_msg},
-            ],
+            messages = messages,
             max_tokens       = 300,
             temperature      = 0,
             response_format  = {"type": "json_object"},  # JSON 모드 강제

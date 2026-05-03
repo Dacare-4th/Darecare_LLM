@@ -119,7 +119,7 @@ def within(state: InsuranceState) -> dict:
         {
             "document_name": doc["metadata"].get("source") or doc["metadata"].get("url", ""),
             "page"         : doc["metadata"].get("page"),
-            "section"      : doc["metadata"].get("topic"),
+            "section"      : doc["metadata"].get("topic") or "",
         }
         for doc in all_retrieved[:5]
     ]

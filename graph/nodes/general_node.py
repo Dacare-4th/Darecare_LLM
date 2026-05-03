@@ -16,8 +16,10 @@
 from __future__ import annotations
 
 from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
-from graph.nodes.retrieve_node import query_collection
+from graph.nodes.retrieve_node import query_collection, query_multi_collections
 from utils.schemas import InsuranceState
+
+_ALL_INSURERS = ["uhcg", "cigna", "tricare", "msh_china"]
 
 # ──────────────────────────────────────────────────────────────
 # 상수
@@ -49,18 +51,31 @@ def general(state: InsuranceState) -> dict:
         sources           : 참조 문서 출처 리스트
         related_questions : 연관 질문 리스트
     """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurer  = state.get("insurer", "")
-    slots    = state.get("slots", {})
+    user_msg     = state["user_message"]
+    language     = state.get("language", "en")
+    insurer      = state.get("insurer", "")
+    slots        = state.get("slots", {})
+    chat_history = state.get("chat_history", [])
 
     # ── Step 1: RAG 검색 ───────────────────────────────────────
-    # insurer 는 analyze_node 에서 항상 확정되므로 전용 컬렉션만 검색
-    docs = query_collection(
-        collection_name = f"{insurer}_plans",
-        query           = user_msg,
-        top_k           = 5,
-    )
+    if insurer:
+        docs = query_collection(
+            collection_name = f"{insurer}_plans",
+            query           = user_msg,
+            top_k           = 10,
+        )
+    else:
+        # insurer 미확정 시 전체 보험사 컬렉션 검색 후 score 기준 정렬
+        multi = query_multi_collections(
+            collection_names = [f"{ins}_plans" for ins in _ALL_INSURERS],
+            query            = user_msg,
+            top_k_each       = 3,
+        )
+        docs = sorted(
+            [doc for results in multi.values() for doc in results],
+            key     = lambda d: d.get("score", 0),
+            reverse = True,
+        )[:8]
 
     # ── Step 2: LLM 문서 기반 답변 생성 ──────────────────────────
     answer = call_llm_with_docs(
@@ -83,4 +98,5 @@ def general(state: InsuranceState) -> dict:
         "answer"           : answer,
         "sources"          : sources,
         "related_questions": related_questions,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": answer}],
     }

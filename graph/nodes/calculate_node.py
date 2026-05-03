@@ -70,7 +70,7 @@ def calculate(state: InsuranceState) -> dict:
     deductible = float(slots.get("deductible", 0))
     copay_rate = float(slots.get("copay_rate", 0.2))
     rate_date=str(slots.get("date", "") or "")
-    plan=str(slots.get("platn", "") or "")
+    plan=str(slots.get("plan", "") or "")
 
     # 플랜별 계산 정보가 필요한 경우 (조건 분기 추가)
     if amount > 0 and insurer and not plan:

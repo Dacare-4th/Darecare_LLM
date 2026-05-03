@@ -9,14 +9,17 @@ graph = build()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    invoke_state = {
+        "user_id": request.user_id,
+        "session_id": request.session_id,
+        "user_message": request.message,
+        "comparison_criteria": request.comparison_criteria,
+    }
+    if request.insurer:
+        invoke_state["insurer"] = request.insurer
+
     result = graph.invoke(
-        {
-            "user_id": request.user_id,
-            "session_id": request.session_id,
-            "user_message": request.message,
-            "insurer": request.insurer,
-            "comparison_criteria": request.comparison_criteria,
-        },
+        invoke_state,
         config={
             "configurable": {
                 "thread_id": request.session_id
