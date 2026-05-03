@@ -182,12 +182,15 @@ def call_llm_with_docs(
 def _format_source(metadata: dict) -> str:
     """메타데이터를 간결한 출처 표기 문자열로 변환한다."""
     source_type = metadata.get("source_type", "")
+    # file_name 우선, 없으면 source 필드 fallback
+    file_name   = metadata.get("file_name") or metadata.get("source", "unknown")
     if source_type == "web":
-        return f"Web | {metadata.get('topic', '')} | {metadata.get('url', '')}"
+        url = metadata.get("source", "")
+        return f"Web | {metadata.get('topic', '')} | {url}"
     if source_type in ("pdf", "pdf_table"):
         page = metadata.get("page", "")
-        return f"PDF | {metadata.get('file_name', '')} | p.{page}"
-    return metadata.get("file_name", "unknown")
+        return f"PDF | {file_name} | p.{page}"
+    return file_name
 
 
 def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
@@ -197,12 +200,18 @@ def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
     document_name 은 항상 포함되며, source_type 에 따라 추가 필드를 선택적으로 포함한다.
         - pdf / pdf_table : page, section (topic)
         - web             : url, topic
+
+    ※ ingest 스크립트마다 파일명/URL 필드가 "file_name" 또는 "source" 로 혼용되므로
+      "file_name" 우선 → 없으면 "source" 로 fallback 한다.
     """
     sources = []
     for doc in retrieved_docs[:7]:
         meta        = doc.get("metadata", {})
         source_type = meta.get("source_type", "")
-        source: dict = {"document_name": meta.get("file_name", "unknown")}
+
+        # file_name 우선, 없으면 source 필드 fallback
+        doc_name     = meta.get("file_name") or meta.get("source", "unknown")
+        source: dict = {"document_name": doc_name}
 
         if source_type in ("pdf", "pdf_table"):
             if meta.get("page"):
@@ -210,8 +219,10 @@ def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
             if meta.get("topic"):
                 source["section"] = meta["topic"]
         elif source_type == "web":
-            if meta.get("url"):
-                source["url"] = meta["url"]
+            # web 문서는 URL 이 "source" 필드에 저장됨
+            url = meta.get("source", "")
+            if url:
+                source["url"] = url
             if meta.get("topic"):
                 source["topic"] = meta["topic"]
 
