@@ -340,8 +340,10 @@ def query_collection(
     # HyDE: Dense 검색용 쿼리만 확장 (BM25 는 원본 유지)
     dense_query = _hyde_expand(query, language) if hyde else query
 
-    # Dense 검색
-    dense_docs = _dense_search(collection_name, dense_query, candidate_k, where)
+    # Dense 검색: where 필터 시 매칭 문서가 적을 수 있으므로 top_k 그대로 사용
+    # (candidate_k=20 으로 요청하면 ChromaDB 가 필터 결과 < n_results 일 때 예외 발생)
+    dense_top_k = top_k if where else candidate_k
+    dense_docs = _dense_search(collection_name, dense_query, dense_top_k, where)
 
     if not hybrid:
         return dense_docs[:top_k]
