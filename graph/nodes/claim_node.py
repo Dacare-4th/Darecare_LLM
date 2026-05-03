@@ -25,8 +25,10 @@ from pathlib import Path
 from typing import Any
 
 from graph.nodes.generate_node import call_llm_with_docs
-from graph.nodes.retrieve_node import query_collection
+from graph.nodes.retrieve_node import query_collection, query_multi_collections
 from utils.schemas import InsuranceState
+
+_ALL_INSURERS = ["uhcg", "cigna", "tricare", "msh_china"]
 
 # ──────────────────────────────────────────────────────────────
 # 상수
@@ -74,11 +76,12 @@ def claim(state: InsuranceState) -> dict:
         compare_table      : 비교 응답이 아니므로 빈 dict
         related_questions  : 추천 후속 질문
     """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurer = _normalize_insurer(state.get("insurer", ""))
-    slots = state.get("slots", {})
-    nhis_step = state.get("nhis_step", "")
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    insurer       = _normalize_insurer(state.get("insurer", ""))
+    slots         = state.get("slots", {})
+    nhis_step     = state.get("nhis_step", "")
+    english_query = state.get("english_query", "") or user_msg
 
     treatment = slots.get("treatment", "")
     plan = slots.get("plan", "")
@@ -90,12 +93,12 @@ def claim(state: InsuranceState) -> dict:
     if insurer and insurer not in ("", "nhis"):
         collection_name = f"{insurer}_plans"
 
-        # 답변 생성용 검색 쿼리
+        # 답변 생성용 검색 쿼리 (english_query 기반으로 BM25 매칭 향상)
         procedure_query = _join_query_parts(
             insurer,
             plan,
             treatment,
-            user_msg,
+            english_query,
             "claim procedure reimbursement submission required documents timeline",
         )
 
@@ -138,6 +141,25 @@ def claim(state: InsuranceState) -> dict:
             top_k=5,
             where={"doc_type": "claim_form"},
         )
+
+    # ── insurer 미확정 fallback: 전체 보험사 컬렉션 검색 ─────────
+    if not procedure_docs and insurer not in ("nhis",):
+        print("[claim_node] insurer 미확정 또는 검색 결과 없음 → 전체 컬렉션 검색")
+        multi = query_multi_collections(
+            collection_names = [f"{ins}_plans" for ins in _ALL_INSURERS],
+            query            = _join_query_parts(
+                english_query,
+                treatment,
+                "claim procedure reimbursement submission required documents",
+            ),
+            top_k_each = 3,
+            hyde       = False,
+        )
+        procedure_docs = sorted(
+            [doc for results in multi.values() for doc in results],
+            key     = lambda d: d.get("score", 0),
+            reverse = True,
+        )[:5]
 
     all_docs = procedure_docs + claim_form_docs
 

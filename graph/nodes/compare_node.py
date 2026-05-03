@@ -79,11 +79,12 @@ Rules:
 # ──────────────────────────────────────────────────────────────
 
 def compare(state: InsuranceState) -> dict:
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurers = state.get("insurers", [])
-    slots = state.get("slots", {})
-    criteria = state.get("comparison_criteria", [])
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    insurers      = state.get("insurers", [])
+    slots         = state.get("slots", {})
+    criteria      = state.get("comparison_criteria", [])
+    english_query = state.get("english_query", "") or user_msg
 
     # ── 비교 기준 결정 ───────────────────────────────────────
     if not criteria:
@@ -99,12 +100,15 @@ def compare(state: InsuranceState) -> dict:
     }
 
     # ── 병렬 멀티 컬렉션 RAG 검색 ─────────────────────────────
-    search_query = _build_search_query(user_msg, criteria, slots)
+    # english_query 기반 검색으로 BM25 매칭 정확도 향상 (hyde=False)
+    search_query = _build_search_query(english_query, criteria, slots)
 
     results_by_collection = query_multi_collections(
         collection_names=list(collection_map.values()),
         query=search_query,
         top_k_each=5,
+        hyde=False,
+        language=language,
     )
 
     col_to_ins = {v: k for k, v in collection_map.items()}

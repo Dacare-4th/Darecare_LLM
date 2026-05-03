@@ -59,10 +59,11 @@ def calculate(state: InsuranceState) -> dict:
         retrieved_docs : 보험 컨텍스트 문서 (설명용)
         answer         : 계산 결과 + 설명이 포함된 최종 응답
     """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurer  = state.get("insurer", "")
-    slots    = state.get("slots", {})
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    insurer       = state.get("insurer", "")
+    slots         = state.get("slots", {})
+    english_query = state.get("english_query", "") or user_msg
 
     # 슬롯에서 계산 파라미터 추출 
     amount     = float(slots.get("amount", 0))
@@ -105,7 +106,7 @@ def calculate(state: InsuranceState) -> dict:
         collection=f"{insurer}_plans"
         context_docs = query_collection(
             collection_name = collection,
-            query           = f"deductible copay rate cost sharing {user_msg}",
+            query           = f"deductible copay rate cost sharing {english_query}",
             top_k           = 3,
         )
     else:

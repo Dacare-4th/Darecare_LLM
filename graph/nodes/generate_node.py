@@ -24,7 +24,6 @@ from utils.schemas import InsuranceState
 _GENERATE_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
 Answer the user's question based ONLY on the provided reference documents.
 If the documents do not contain enough information, say so clearly.
-Always cite which document your answer is based on.
 Keep your answer concise and structured."""
 
 _RELATED_QUESTIONS_SYSTEM_PROMPT = """You are a helpful health insurance assistant.

@@ -79,7 +79,8 @@ Respond ONLY with valid JSON:
     "deductible" : 0,
     "copay_rate" : 0.0
   },
-  "missing_slots": []
+  "missing_slots": [],
+  "english_query": "concise English search keywords capturing the user's intent and key terms (plan names, treatment types, benefit categories, etc.)"
 }
 
 == RULES ==
@@ -89,7 +90,12 @@ Respond ONLY with valid JSON:
 - For cross_compare: list all mentioned insurers in insurers[].
 - For within_compare: extract plan names into slots["plans"] if mentioned.
 - Convert Korean dates like "2025년 3월 15일" to "2025-03-15".
-- If user asks "한화로 얼마야", classify as calculation."""
+- If user asks "한화로 얼마야", classify as calculation.
+- english_query: Translate the user's question into concise English search keywords.
+  Include plan names, treatment types, benefit categories, and key terms.
+  Example: "골드 플랜 치과 보장 되나요?" → "Gold plan dental coverage benefits"
+  Example: "How do I file a claim for outpatient surgery?" → "outpatient surgery claim procedure reimbursement"
+"""
 
 
 # ──────────────────────────────────────────────────────────────
@@ -185,6 +191,7 @@ def analyze(state: InsuranceState) -> dict:
             "insurers": state.get("insurers", []),
             "slots": state.get("slots", {}),
             "missing_slots": [],
+            "english_query": state.get("english_query", "") or user_msg,
         }
 
     # ── Step 3: Intent Router (LLM) ────────────────────────────
@@ -213,6 +220,7 @@ def analyze(state: InsuranceState) -> dict:
             "insurers": final_insurers,
             "slots": analysis.get("slots", {}),
             "missing_slots": [],
+            "english_query": analysis.get("english_query", "") or user_msg,
         }
 
     final_insurer = request_insurer or analysis_insurer
@@ -249,6 +257,7 @@ def analyze(state: InsuranceState) -> dict:
         "insurers": analysis.get("insurers", []),
         "slots": analysis.get("slots", {}),
         "missing_slots": analysis.get("missing_slots", []),
+        "english_query": analysis.get("english_query", "") or user_msg,
         "chat_history": chat_history + [{"role": "user", "content": user_msg}],
     }
 
@@ -275,7 +284,7 @@ def _run_intent_router(user_msg: str, chat_history: list | None = None, current_
         response = client.chat.completions.create(
             model    = "gpt-4o-mini",
             messages = messages,
-            max_tokens       = 300,
+            max_tokens       = 400,
             temperature      = 0,
             response_format  = {"type": "json_object"},  # JSON 모드 강제
         )

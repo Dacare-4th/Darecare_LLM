@@ -78,6 +78,10 @@ class InsuranceState(TypedDict):
     # 멀티턴 대화 이력 (intent router 컨텍스트용)
     chat_history: list  # [{"role": "user"|"assistant", "content": str}, ...]
 
+    # 영어 검색 쿼리 (analyze_node에서 생성)
+    # 비영어 쿼리를 영어 키워드로 변환 → Dense + BM25 모두에 사용
+    english_query: str
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -112,6 +116,7 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         related_questions=[],
         comparison_criteria=[],
         chat_history=[],
+        english_query="",
     )
 
 

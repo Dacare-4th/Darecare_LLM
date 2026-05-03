@@ -73,15 +73,16 @@ def within(state: InsuranceState) -> dict:
         related_questions : 관련 질문 3개 리스트
         sources           : 출처 정보 리스트 (최대 5개)
     """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    slots    = state.get("slots", {})
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    slots         = state.get("slots", {})
+    english_query = state.get("english_query", "") or user_msg
 
-    # insurer 유효성 검증 
+    # insurer 유효성 검증
     #_validate_insurer() 로 지원 여부 확인 후 사용
     insurer = _validate_insurer(state)
 
-    #비교할 플랜 목록 추출 
+    #비교할 플랜 목록 추출
     # _resolve_plans() 로 단일/복수 플랜 모두 처리
     plans = _resolve_plans(slots)
 
@@ -91,7 +92,7 @@ def within(state: InsuranceState) -> dict:
 
     #  플랜별 RAG 검색
     #_search_per_plan() 로 분리 재사용 가능
-    docs_by_plan, all_retrieved = _search_per_plan(insurer, plans, user_msg)
+    docs_by_plan, all_retrieved = _search_per_plan(insurer, plans, user_msg, english_query)
 
     #비교 프롬프트 조립 
     # text_by_plan: {플랜명: [문서 텍스트, ...]} 형태로 변환
@@ -227,6 +228,7 @@ def _search_per_plan(
     insurer: str,
     plans: list[str],
     user_msg: str,
+    english_query: str = "",
 ) -> tuple[dict[str, list[dict]], list[dict]]:
     """
     [신규] 플랜별로 RAG 검색을 수행하고 결과를 반환한다.
@@ -235,15 +237,17 @@ def _search_per_plan(
     재사용성 향상 + within() 함수 가독성 개선이 목적.
 
     Args:
-        insurer  : 보험사 코드 (빈 문자열이면 general_guidelines 컬렉션 사용)
-        plans    : 비교할 플랜 이름 리스트 (빈 리스트면 전체 검색)
-        user_msg : 사용자 원문 질의
+        insurer       : 보험사 코드 (빈 문자열이면 general_guidelines 컬렉션 사용)
+        plans         : 비교할 플랜 이름 리스트 (빈 리스트면 전체 검색)
+        user_msg      : 사용자 원문 질의
+        english_query : analyze_node에서 생성된 영어 검색 쿼리 (없으면 user_msg 사용)
 
     Returns:
         docs_by_plan  : {플랜명: [doc_dict, ...]}
         all_retrieved : 모든 플랜 문서를 합친 단일 리스트
     """
     collection_name = f"{insurer}_plans" if insurer else "general_guidelines"
+    base_query = english_query or user_msg
 
     docs_by_plan: dict[str, list[dict]] = {}
 
@@ -252,7 +256,7 @@ def _search_per_plan(
         for plan in plans:
             docs = query_collection(
                 collection_name = collection_name,
-                query           = f"{user_msg} {plan}",
+                query           = f"{base_query} {plan}",
                 top_k           = 5,
                 where           = {"plan": plan},
             )
@@ -263,7 +267,7 @@ def _search_per_plan(
             if not docs:
                 docs = query_collection(
                     collection_name = collection_name,
-                    query           = f"{user_msg} {plan}",
+                    query           = f"{base_query} {plan}",
                     top_k           = 5,
                 )
             docs_by_plan[plan] = docs
@@ -272,7 +276,7 @@ def _search_per_plan(
         label = insurer.upper() if insurer else "Insurance Plans"
         docs_by_plan[label] = query_collection(
             collection_name = collection_name,
-            query           = user_msg,
+            query           = base_query,
             top_k           = 8,
         )
 
