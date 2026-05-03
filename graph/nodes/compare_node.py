@@ -393,7 +393,7 @@ def _build_sources(docs: list[Any]) -> list[dict]:
             or metadata.get("url")
             or ""
         )
-        page = metadata.get("page")
+        page = metadata.get("page") or None
         section = (
             metadata.get("section")
             or metadata.get("topic")

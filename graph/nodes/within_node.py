@@ -118,7 +118,7 @@ def within(state: InsuranceState) -> dict:
     sources = [
         {
             "document_name": doc["metadata"].get("source") or doc["metadata"].get("url", ""),
-            "page"         : doc["metadata"].get("page"),
+            "page"         : doc["metadata"].get("page") or None,
             "section"      : doc["metadata"].get("topic") or "",
         }
         for doc in all_retrieved[:5]
@@ -164,7 +164,15 @@ def _resolve_plans(slots: dict) -> list[str]:
         return plans
 
     plan = slots.get("plan", "")
-    return [plan] if plan else []
+    if not plan:
+        return []
+
+    # LLM이 "Prime, Select"처럼 쉼표 구분 단일 문자열로 반환한 경우 분리
+    # 예: "TRICARE Prime, TRICARE Select" → ["TRICARE Prime", "TRICARE Select"]
+    if "," in plan:
+        return [p.strip() for p in plan.split(",") if p.strip()]
+
+    return [plan]
 
 
 def _search_per_plan(

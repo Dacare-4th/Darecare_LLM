@@ -67,7 +67,8 @@ Respond ONLY with valid JSON in this exact format:
   "insurer"      : "insurer_code or empty string",
   "insurers"     : ["insurer1", "insurer2"],
   "slots"        : {
-    "plan"       : "plan name or empty",
+    "plan"       : "plan name or empty (단일 플랜 질문일 때)",
+    "plans"      : ["plan1_name", "plan2_name"],
     "treatment"  : "treatment type or empty",
     "amount"     : 0,
     "currency"   : "USD or empty",
@@ -88,6 +89,7 @@ Rules:
 - IF the user mentions an insurer or plan, extract insurer and plan
 - Extract date from user query if presendt
 - For cross_compare: list all mentioned insurers in insurers[]
+- For within_compare: extract ALL mentioned plan names into slots["plans"] as a list (e.g. ["Prime", "Select"])
 - missing_slots should list slots that are REQUIRED but not provided by user
 - If truly ambiguous, use "clarify" as the intent"""
 
