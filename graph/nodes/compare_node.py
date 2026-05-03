@@ -362,11 +362,7 @@ def _safe_parse_compare_response(
     related_questions = parsed.get("related_questions")
 
     if not isinstance(related_questions, list):
-        related_questions = [
-            "Which insurer has better outpatient coverage?",
-            "Which plan has the lowest cost-sharing?",
-            "Does this benefit require pre-authorization?",
-        ]
+        related_questions = []
 
     return {
         "answer": answer,
