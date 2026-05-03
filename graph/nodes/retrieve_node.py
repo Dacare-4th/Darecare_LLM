@@ -13,8 +13,9 @@
 #   P2 - Hybrid Search (Dense + BM25 + RRF)
 #        Dense 결과 + BM25 결과를 Reciprocal Rank Fusion 으로 병합
 #        BM25 인덱스는 컬렉션별 메모리 캐시 (_bm25_cache)
-#   Fix - ChromaDB 0.5.23 _type 버그 수정
-#         get_collection() 에 embedding_function=None 명시
+#   Fix - ChromaDB 1.x 호환
+#         Settings import 경로 변경 (chromadb.config → chromadb)
+#         get_collection() 에 embedding_function=None 명시 (내장 임베딩 함수 비활성화)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import chromadb
-from chromadb.config import Settings
+from chromadb import Settings
 from langchain_huggingface import HuggingFaceEmbeddings
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
@@ -131,7 +132,7 @@ def _dense_search(
     """BGE-M3 임베딩 기반 코사인 유사도 검색."""
     try:
         client     = _get_chroma_client()
-        # Fix: embedding_function=None → ChromaDB 0.5.23 _type 역직렬화 버그 우회
+        # embedding_function=None → ChromaDB 내장 임베딩 함수 비활성화 (BGE-M3 직접 사용)
         collection = client.get_collection(
             name               = collection_name,
             embedding_function = None,
@@ -198,7 +199,7 @@ def _get_bm25_index(collection_name: str) -> tuple[list[str], BM25Okapi] | None:
             name               = collection_name,
             embedding_function = None,
         )
-        # 전체 문서 로드 (BM25 인덱스 빌드용)
+        # 전체 문서 로드 (BM25 인덱스 빌드용) — include=["ids"] IDs는 항상 반환됨
         all_docs = collection.get(include=["documents", "metadatas"])
         corpus_texts = all_docs["documents"] or []
         corpus_meta  = all_docs["metadatas"] or []
