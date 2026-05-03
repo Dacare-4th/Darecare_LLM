@@ -112,7 +112,7 @@ def run() -> None:
     print(f"\n[uhcg] 청구서 양식 청크: {len(_CLAIM_FORM_CHUNKS)}개")
     for c in _CLAIM_FORM_CHUNKS:
         pdf_path = CLAIM_FORMS_DIR / c["metadata"]["file_name"]
-        exists   = "✓" if pdf_path.exists() else "✗ (PDF 없음 — 링크만 등록)"
+        exists   = "[OK]" if pdf_path.exists() else "[MISS] PDF 없음 - 링크만 등록"
         print(f"  {exists} {c['metadata']['file_name']}")
 
     # 3. 전체 합산 후 인제스트
