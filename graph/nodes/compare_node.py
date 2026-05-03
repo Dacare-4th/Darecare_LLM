@@ -99,41 +99,64 @@ def compare(state: InsuranceState) -> dict:
         for ins in insurers
     }
 
-    # ── 병렬 멀티 컬렉션 RAG 검색 ─────────────────────────────
-    # english_query 기반 검색으로 BM25 매칭 정확도 향상 (hyde=False)
-    search_query = _build_search_query(english_query, criteria, slots)
+    # ── 기준별 멀티 컬렉션 RAG 검색 ──────────────────────────────
+    # 단일 generic 쿼리 대신 기준(criterion)별로 검색 → 각 기준 커버리지 향상
+    col_to_ins = {v: k for k, v in collection_map.items()}
 
-    results_by_collection = query_multi_collections(
+    # {insurer_label: {content: str, ...}} 형태로 중복 없이 누적
+    _raw_by_insurer: dict[str, dict[str, dict]] = {
+        _COMPARE_LABELS.get(ins, ins.upper()): {}
+        for ins in insurers
+    }
+    all_retrieved: list[dict] = []
+
+    # 1) 전체 기준 통합 쿼리 (broad coverage)
+    broad_query = _build_search_query(english_query, criteria, slots)
+    broad_results = query_multi_collections(
         collection_names=list(collection_map.values()),
-        query=search_query,
+        query=broad_query,
         top_k_each=5,
         hyde=False,
         language=language,
     )
+    for col_name, docs in broad_results.items():
+        label = _COMPARE_LABELS.get(col_to_ins.get(col_name, col_name), col_name.upper())
+        for d in docs:
+            _raw_by_insurer[label][d.get("content", "")] = d
 
-    col_to_ins = {v: k for k, v in collection_map.items()}
+    # 2) 기준별 세부 쿼리 (per-criterion precision)
+    for criterion in criteria:
+        criterion_query = f"{criterion} {english_query}"
+        crit_results = query_multi_collections(
+            collection_names=list(collection_map.values()),
+            query=criterion_query,
+            top_k_each=4,
+            hyde=False,
+            language=language,
+        )
+        for col_name, docs in crit_results.items():
+            label = _COMPARE_LABELS.get(col_to_ins.get(col_name, col_name), col_name.upper())
+            for d in docs:
+                _raw_by_insurer[label][d.get("content", "")] = d
 
+    # 3) rerank → top 10 per insurer → docs_by_insurer
     docs_by_insurer: dict[str, list[str]] = {}
-    all_retrieved: list[dict] = []
 
-    for col_name, docs in results_by_collection.items():
-        insurer_code = col_to_ins.get(col_name, col_name)
-        insurer_label = _COMPARE_LABELS.get(insurer_code, insurer_code.upper())
-
-        if not docs:
-            docs_by_insurer[insurer_label] = []
+    for label, content_map in _raw_by_insurer.items():
+        pooled = list(content_map.values())
+        if not pooled:
+            docs_by_insurer[label] = []
             continue
-
         try:
             ranked = rerank_by_relevance(
-                docs=[d.get("content", "") for d in docs],
-                metadatas=[d.get("metadata", {}) for d in docs],
-                top_k=5,
+                docs=[d.get("content", "") for d in pooled],
+                metadatas=[d.get("metadata", {}) for d in pooled],
+                top_k=10,
             )
         except Exception:
-            ranked = docs[:5]
+            ranked = pooled[:10]
 
-        docs_by_insurer[insurer_label] = [d.get("content", "") for d in ranked]
+        docs_by_insurer[label] = [d.get("content", "") for d in ranked]
         all_retrieved.extend(ranked)
 
     # ── 비교 프롬프트 조립 ───────────────────────────────────
