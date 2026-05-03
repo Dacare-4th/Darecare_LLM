@@ -195,14 +195,21 @@ def analyze(state: InsuranceState) -> dict:
     
     analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
 
-    # 🔥 request.insurer == "compare"이면 compare_node로 강제 라우팅
+    # request.insurer == "compare"이면 compare_node로 강제 라우팅
     if request_insurer == "compare":
+        # LLM이 추출한 insurers를 우선 사용, 없을 때만 전체 4개 fallback
+        extracted_insurers = [
+            _normalize_insurer(ins)
+            for ins in analysis.get("insurers", [])
+            if _normalize_insurer(ins) and _normalize_insurer(ins) != "compare"
+        ]
+        final_insurers = extracted_insurers if extracted_insurers else ["uhcg", "cigna", "tricare", "msh_china"]
         return {
             "language": language,
             "intent": Intent.CROSS_COMPARE,
             "intents": [Intent.CROSS_COMPARE],
             "insurer": "compare",
-            "insurers": ["uhcg", "cigna", "tricare", "msh_china"],
+            "insurers": final_insurers,
             "slots": analysis.get("slots", {}),
             "missing_slots": [],
         }

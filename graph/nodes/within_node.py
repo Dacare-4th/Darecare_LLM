@@ -168,7 +168,7 @@ def _resolve_plans(slots: dict) -> list[str]:
         return []
 
     # LLM이 "Prime, Select"처럼 쉼표 구분 단일 문자열로 반환한 경우 분리
-    # 예: "TRICARE Prime, TRICARE Select" → ["TRICARE Prime", "TRICARE Select"]
+    # 예: "TRICARE Prime, TRICARE Select" -> ["TRICARE Prime", "TRICARE Select"]
     if "," in plan:
         return [p.strip() for p in plan.split(",") if p.strip()]
 
