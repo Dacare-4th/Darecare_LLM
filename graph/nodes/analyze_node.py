@@ -194,7 +194,10 @@ def analyze(state: InsuranceState) -> dict:
     analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
 
     # request.insurer == "compare"이면 compare_node로 강제 라우팅
-    if request_insurer == "compare":
+    # 단, LLM이 general_query/clarify/procedure 등으로 분류하면 그대로 허용
+    intents_early = analysis.get("intents", [Intent.CLARIFY])
+    primary_early = intents_early[0] if intents_early else Intent.CLARIFY
+    if request_insurer == "compare" and primary_early in (Intent.CROSS_COMPARE, Intent.WITHIN_COMPARE):
         # LLM이 추출한 insurers를 우선 사용, 없을 때만 전체 4개 fallback
         extracted_insurers = [
             _normalize_insurer(ins)
