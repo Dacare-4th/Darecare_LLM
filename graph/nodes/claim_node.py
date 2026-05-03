@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from graph.nodes.generate_node import call_llm_with_docs
+from graph.nodes.generate_node import call_llm_with_docs, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection, query_multi_collections
 from utils.schemas import InsuranceState
 
@@ -209,11 +209,11 @@ def claim(state: InsuranceState) -> dict:
         "sources": sources,
         "claim_form": claim_forms,
         "compare_table": {},
-        "related_questions": [
-            "What documents are needed for a claim?",
-            "Does this benefit require pre-authorization?",
-            "How long does the claim review usually take?",
-        ],
+        "related_questions": _call_llm_for_related_questions(
+            user_query = user_msg,
+            answer     = procedure_answer,
+            language   = language,
+        ),
     }
 
 
