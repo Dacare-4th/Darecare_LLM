@@ -21,8 +21,18 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 VECTORDB_PATH = str(_PROJECT_ROOT / "vectordb")
 DEFAULT_TOP_K = 5   # 기본 검색 결과 수
 
-# 05.01 - 모델을 매 쿼리마다 새로 로드하면 수백 MB를 반복 로딩하므로 모듈 레벨에서 캐싱
+# 모델 + ChromaDB 클라이언트 모두 모듈 레벨 캐싱 (매 쿼리마다 재연결 방지)
 _embedding_model: HuggingFaceEmbeddings | None = None
+_chroma_client: chromadb.PersistentClient | None = None
+
+def _get_chroma_client() -> chromadb.PersistentClient:
+    global _chroma_client
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(
+            path     = VECTORDB_PATH,
+            settings = Settings(anonymized_telemetry=False),
+        )
+    return _chroma_client
 
 def _get_embedding_model() -> HuggingFaceEmbeddings:
     global _embedding_model
@@ -57,11 +67,7 @@ def query_collection(
         컬렉션이 없거나 오류 시 빈 리스트 반환
     """
     try:
-        client     = chromadb.PersistentClient(
-            path     = VECTORDB_PATH,
-            settings = Settings(anonymized_telemetry=False),
-        )
-
+        client     = _get_chroma_client()
         collection = client.get_collection(name=collection_name)
 
         model       = _get_embedding_model()
@@ -83,18 +89,24 @@ def query_collection(
         metadatas = results["metadatas"][0]
         distances = results["distances"][0]
 
-        return [
+        results_list = [
             {
                 "content" : doc,
                 "metadata": meta,
-                "score"   : round(1 - dist, 4),  # cosine distance → similarity
+                "score"   : round(1 - dist, 4),
             }
             for doc, meta, dist in zip(docs, metadatas, distances)
             if doc and doc.strip()
         ]
 
+        for r in results_list:
+            src  = r["metadata"].get("source") or r["metadata"].get("file_name", "unknown")
+            page = r["metadata"].get("page", "")
+            print(f"[RAG] {collection_name} | score={r['score']} | {src} p.{page}")
+
+        return results_list
+
     except Exception as e:
-        # 컬렉션 미존재 또는 DB 오류 → 빈 결과 반환 (서비스 중단 방지)
         print(f"[retrieve_node] 검색 오류 ({collection_name}): {e}")
         return []
 

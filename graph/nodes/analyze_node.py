@@ -153,7 +153,14 @@ def analyze(state: InsuranceState) -> dict:
         }
 
     # ── Step 2: 언어 감지 ──────────────────────────────────────
-    language = detect_language(user_msg)
+    # 짧은 메시지(15자 이하, 단어 2개 이하)는 이전 턴 언어를 유지
+    # 예: "gold", "yes", "core 1" 같은 슬롯 답변은 언어 감지가 무의미
+    prev_language = state.get("language", "")
+    words = user_msg.strip().split()
+    if prev_language and len(user_msg.strip()) <= 15 and len(words) <= 2:
+        language = prev_language
+    else:
+        language = detect_language(user_msg)
 
     # ── Step 2-1: NHIS 대화 진행 중 short-circuit ─────────────
     # 아래 두 경우 LLM 재분류 없이 바로 nhis 라우팅
