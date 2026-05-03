@@ -303,7 +303,7 @@ def _build_sources(docs: list[Any]) -> list[dict]:
         metadata = _get_metadata(doc)
 
         document_name = metadata.get("source", "")
-        page = metadata.get("page")
+        page = metadata.get("page") or None
         section = metadata.get("section") or metadata.get("doc_type", "")
 
         key = (document_name, page, section)
