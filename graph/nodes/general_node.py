@@ -59,9 +59,11 @@ def general(state: InsuranceState) -> dict:
 
     # ── Step 1: RAG 검색 ───────────────────────────────────────
     if insurer:
+        # insurer명을 쿼리에 추가해 영어 문서와의 semantic 매칭 향상
+        search_query = f"{insurer} {user_msg}" if insurer not in user_msg.lower() else user_msg
         docs = query_collection(
             collection_name = f"{insurer}_plans",
-            query           = user_msg,
+            query           = search_query,
             top_k           = 10,
         )
     else:

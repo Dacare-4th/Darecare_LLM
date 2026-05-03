@@ -49,10 +49,14 @@ Supported intents:
 - nhis            : User asks about NHIS (National Health Insurance Service / 국민건강보험)
 - claim           : User wants to know about claim procedures or needs a claim form
 - general_query   : General coverage or benefit inquiry that does not fit any category above
-                    (e.g. "Is mental health covered?", "Does my plan cover dental?")
-- recommendation  : User asks for insurance product recommendations, asks the AI to choose a plan,
-                    or requests legal/medical final judgments (e.g. "어떤 보험이 좋아?", "이 보험 들어야 해?",
+                    (e.g. "Is mental health covered?", "Does my plan cover dental?",
+                    "어떤 플랜이 있어?", "cigna 플랜 종류 알려줘", "What plans does Cigna offer?")
+                    NOTE: Asking WHAT plans/benefits EXIST = general_query (factual lookup)
+- recommendation  : User asks the AI to CHOOSE or RECOMMEND a plan for them, or requests
+                    legal/medical final judgments
+                    (e.g. "어떤 보험이 좋아?", "이 보험 들어야 해?", "어떤 플랜 선택해야 해?",
                     "내 증상은 어떤 병이야?", "소송에서 이길 수 있어?")
+                    NOTE: "어떤 플랜이 있어?" is NOT recommendation — it asks what exists, not what to pick
 - clarify         : Not enough information to determine intent (ask user for more info)
 
 Supported insurer codes: uhcg, cigna, tricare, msh_china
