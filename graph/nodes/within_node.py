@@ -85,7 +85,11 @@ def within(state: InsuranceState) -> dict:
     # _resolve_plans() 로 단일/복수 플랜 모두 처리
     plans = _resolve_plans(slots)
 
-    #  플랜별 RAG 검색 
+    # 플랜 미지정 시 플랜 목록 안내 후 비교 유도 (Option B)
+    if not plans:
+        return _guide_plan_selection(insurer, language)
+
+    #  플랜별 RAG 검색
     #_search_per_plan() 로 분리 재사용 가능
     docs_by_plan, all_retrieved = _search_per_plan(insurer, plans, user_msg)
 
@@ -133,6 +137,50 @@ def within(state: InsuranceState) -> dict:
         "compare_table"    : compare_table,
         "related_questions": related_questions,
         "sources"          : sources,
+    }
+
+
+_LIST_PLANS_PROMPT = {
+    "ko": "위 문서를 바탕으로 {insurer}에서 제공하는 보험 플랜 종류를 목록으로 알려주고, 어떤 플랜끼리 비교할지 물어보세요. 간결하게 작성하세요.",
+    "en": "Based on the documents above, list the available plans for {insurer} and ask which plans the user wants to compare. Be concise.",
+}
+
+
+def _guide_plan_selection(insurer: str, language: str) -> dict:
+    """플랜 미지정 시 플랜 목록을 보여주고 비교할 플랜을 안내한다."""
+    from graph.nodes.retrieve_node import query_collection
+    from openai import OpenAI
+    import os
+
+    docs = query_collection(
+        collection_name = f"{insurer}_plans",
+        query           = f"{insurer} plan options coverage types",
+        top_k           = 6,
+    )
+    context = "\n\n".join(d["content"][:400] for d in docs if d.get("content"))
+
+    lang_prompt = _LIST_PLANS_PROMPT.get(language, _LIST_PLANS_PROMPT["en"])
+    prompt = f"{context}\n\n{lang_prompt.format(insurer=insurer.upper())}"
+
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        resp = client.chat.completions.create(
+            model       = "gpt-4o-mini",
+            messages    = [{"role": "user", "content": prompt}],
+            max_tokens  = 300,
+            temperature = 0.3,
+        )
+        answer = resp.choices[0].message.content.strip()
+    except Exception:
+        answer = f"어떤 플랜끼리 비교하시겠어요? (예: Gold, Silver, Basic)" if language == "ko" \
+                 else "Which plans would you like to compare? (e.g. Gold, Silver, Basic)"
+
+    return {
+        "retrieved_docs"   : docs,
+        "answer"           : answer,
+        "compare_table"    : {"header": [], "body": []},
+        "related_questions": [],
+        "sources"          : [],
     }
 
 

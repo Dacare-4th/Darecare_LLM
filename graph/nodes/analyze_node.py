@@ -41,57 +41,55 @@ _MAX_MESSAGE_LENGTH = 500
 # ──────────────────────────────────────────────────────────────
 _INTENT_SYSTEM_PROMPT = """You are an intent classifier and slot extractor for a health insurance assistant.
 
-Supported intents:
-- within_compare  : User wants to compare plans within ONE specific insurer
-- cross_compare   : User wants to compare MULTIPLE insurers against each other
-- calculation     : User asks about exchange rates, copay amounts, or cost calculation
-- procedure       : User asks about general insurance procedures or processes
-- nhis            : User asks about NHIS (National Health Insurance Service / 국민건강보험)
-- claim           : User wants to know about claim procedures or needs a claim form
-- general_query   : General coverage or benefit inquiry that does not fit any category above
-                    (e.g. "Is mental health covered?", "Does my plan cover dental?",
-                    "어떤 플랜이 있어?", "cigna 플랜 종류 알려줘", "What plans does Cigna offer?")
-                    NOTE: Asking WHAT plans/benefits EXIST = general_query (factual lookup)
-- recommendation  : User asks the AI to CHOOSE or RECOMMEND a plan for them, or requests
-                    legal/medical final judgments
-                    (e.g. "어떤 보험이 좋아?", "이 보험 들어야 해?", "어떤 플랜 선택해야 해?",
-                    "내 증상은 어떤 병이야?", "소송에서 이길 수 있어?")
-                    NOTE: "어떤 플랜이 있어?" is NOT recommendation — it asks what exists, not what to pick
-- clarify         : Not enough information to determine intent (ask user for more info)
+== CRITICAL CONTEXT RULES ==
+1. The user's insurer is ALWAYS provided by the system — NEVER put "insurer" in missing_slots.
+2. For within_compare, specific plan names are OPTIONAL — the system handles unspecified plans.
+   Do NOT put "plan" in missing_slots for comparison requests.
+3. Use "clarify" ONLY when the intent itself is truly ambiguous (not because slots are missing).
 
-Supported insurer codes: uhcg, cigna, tricare, msh_china
+== INTENTS ==
+- within_compare  : User wants to compare plans within ONE insurer.
+                    Use even without specific plan names ("플랜 비교해줘", "compare your plans").
+- cross_compare   : User wants to compare MULTIPLE insurers against each other.
+- calculation     : Exchange rates, copay amounts, or cost calculation.
+- procedure       : General insurance procedures or processes.
+- nhis            : NHIS (National Health Insurance Service / 국민건강보험).
+- claim           : Claim procedures or claim form requests.
+- general_query   : General coverage/benefit inquiry or asking what plans/benefits EXIST.
+                    (e.g. "어떤 플랜이 있어?", "치과 보장 되나요?", "What plans does Cigna offer?")
+                    NOTE: Asking WHAT EXISTS = general_query, NOT recommendation.
+- recommendation  : User asks AI to CHOOSE or RECOMMEND a plan, or requests legal/medical judgment.
+                    (e.g. "어떤 보험이 좋아?", "이 보험 들어야 해?", "어떤 플랜 선택해야 해?")
+- clarify         : Intent is truly ambiguous even after considering all context.
 
-Respond ONLY with valid JSON in this exact format:
+== OUTPUT FORMAT ==
+Respond ONLY with valid JSON:
 {
-  "intents"      : ["primary_intent", "optional_second_intent"],
+  "intents"      : ["primary_intent"],
   "insurer"      : "insurer_code or empty string",
   "insurers"     : ["insurer1", "insurer2"],
   "slots"        : {
-    "plan"       : "plan name or empty (단일 플랜 질문일 때)",
-    "plans"      : ["plan1_name", "plan2_name"],
+    "plan"       : "plan name or empty",
+    "plans"      : ["plan1", "plan2"],
     "treatment"  : "treatment type or empty",
     "amount"     : 0,
     "currency"   : "USD or empty",
     "region"     : "region or empty",
-    "date":"YYYY-MM-DD format or empty",
-    "deductible": 0,
-    "copay_rate": 0.2
+    "date"       : "YYYY-MM-DD or empty",
+    "deductible" : 0,
+    "copay_rate" : 0.0
   },
-  "missing_slots": ["list of required but missing slot names"]
+  "missing_slots": []
 }
 
-Rules:
-- intents[0] is the PRIMARY intent used for routing
-- For calculation: extract amount and currency from slots if mentioned
-- For calculation: extract amount, currency, and date if mentioned.
+== RULES ==
+- intents[0] is the PRIMARY intent used for routing.
+- NEVER put "insurer" or "plan" in missing_slots (see critical context rules above).
+- For calculation: amount and currency are required → add to missing_slots if absent.
+- For cross_compare: list all mentioned insurers in insurers[].
+- For within_compare: extract plan names into slots["plans"] if mentioned.
 - Convert Korean dates like "2025년 3월 15일" to "2025-03-15".
-- If users asks "한화로 얼마야",  classify as caluction.
-- IF the user mentions an insurer or plan, extract insurer and plan
-- Extract date from user query if presendt
-- For cross_compare: list all mentioned insurers in insurers[]
-- For within_compare: extract ALL mentioned plan names into slots["plans"] as a list (e.g. ["Prime", "Select"])
-- missing_slots should list slots that are REQUIRED but not provided by user
-- If truly ambiguous, use "clarify" as the intent"""
+- If user asks "한화로 얼마야", classify as calculation."""
 
 
 # ──────────────────────────────────────────────────────────────
@@ -191,8 +189,8 @@ def analyze(state: InsuranceState) -> dict:
 
     # ── Step 3: Intent Router (LLM) ────────────────────────────
     chat_history = state.get("chat_history", [])
-    analysis = _run_intent_router(user_msg, chat_history[-6:])
-    
+    analysis = _run_intent_router(user_msg, chat_history[-6:], request_insurer)
+
     analysis_insurer = _normalize_insurer(analysis.get("insurer", ""))
 
     # request.insurer == "compare"이면 compare_node로 강제 라우팅
@@ -256,7 +254,7 @@ def analyze(state: InsuranceState) -> dict:
 # 내부 함수
 # ──────────────────────────────────────────────────────────────
 
-def _run_intent_router(user_msg: str, chat_history: list | None = None) -> dict:
+def _run_intent_router(user_msg: str, chat_history: list | None = None, current_insurer: str = "") -> dict:
     """
     LLM 을 호출해 의도·슬롯을 추출한다.
 
@@ -264,7 +262,10 @@ def _run_intent_router(user_msg: str, chat_history: list | None = None) -> dict:
     """
     try:
         client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        messages = [{"role": "system", "content": _INTENT_SYSTEM_PROMPT}]
+        system_content = _INTENT_SYSTEM_PROMPT
+        if current_insurer:
+            system_content += f"\n\nCURRENT INSURER CONTEXT: {current_insurer} (already confirmed — do NOT put insurer in missing_slots)"
+        messages = [{"role": "system", "content": system_content}]
         if chat_history:
             messages.extend(chat_history)
         messages.append({"role": "user", "content": user_msg})
