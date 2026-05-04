@@ -80,9 +80,10 @@ def _get_chroma_client() -> chromadb.PersistentClient:
 def _get_embedding_model() -> HuggingFaceEmbeddings:
     global _embedding_model
     if _embedding_model is None:
+        device = os.getenv("EMBEDDING_DEVICE", "cpu")
         _embedding_model = HuggingFaceEmbeddings(
             model_name    = "BAAI/bge-m3",
-            model_kwargs  = {"device": "cpu"},
+            model_kwargs  = {"device": device},
             encode_kwargs = {"normalize_embeddings": True},
         )
     return _embedding_model

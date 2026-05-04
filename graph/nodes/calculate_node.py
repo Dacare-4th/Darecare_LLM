@@ -64,6 +64,7 @@ def calculate(state: InsuranceState) -> dict:
     insurer       = state.get("insurer", "")
     slots         = state.get("slots", {})
     english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
     # 슬롯에서 계산 파라미터 추출 
     amount     = float(slots.get("amount", 0))
@@ -75,10 +76,12 @@ def calculate(state: InsuranceState) -> dict:
 
     # 플랜별 계산 정보가 필요한 경우 (조건 분기 추가)
     if amount > 0 and insurer and not plan:
+        _answer = "보험사별/플랜별 공제액(deductible), 본인부담률(copay/consurance),보장 범위가 달라질 수 있습니다. 정확한 계산을 위해 가입한 플랜명을 알려주세요."
         return {
-            "calc_result": {},
+            "calc_result"   : {},
             "retrieved_docs": [],
-            "answer": ("보험사별/플랜별 공제액(deductible), 본인부담률(copay/consurance),보장 범위가 달라질 수 있습니다. 정확한 계산을 위해 가입한 플랜명을 알려주세요.")
+            "answer"        : _answer,
+            "chat_history"  : chat_history + [{"role": "assistant", "content": _answer}],
         }
     #  환율 조회 및 계산 
     if amount > 0:
@@ -123,9 +126,10 @@ def calculate(state: InsuranceState) -> dict:
     )
 
     return {
-        "calc_result"  : calc_result,
+        "calc_result"   : calc_result,
         "retrieved_docs": context_docs,
-        "answer"       : answer,
+        "answer"        : answer,
+        "chat_history"  : chat_history + [{"role": "assistant", "content": answer}],
     }
 
 

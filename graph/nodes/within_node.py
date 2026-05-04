@@ -77,6 +77,7 @@ def within(state: InsuranceState) -> dict:
     language      = state.get("language", "en")
     slots         = state.get("slots", {})
     english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
     # insurer 유효성 검증
     #_validate_insurer() 로 지원 여부 확인 후 사용
@@ -86,9 +87,24 @@ def within(state: InsuranceState) -> dict:
     # _resolve_plans() 로 단일/복수 플랜 모두 처리
     plans = _resolve_plans(slots)
 
+    # insurer 미확정이면 비교 불가 안내
+    if not insurer:
+        _answer = ("어떤 보험사의 플랜을 비교하시겠어요? (예: UHCG, Cigna, Tricare, MSH China)\n"
+                   "Which insurer's plans would you like to compare? (e.g., UHCG, Cigna, Tricare, MSH China)")
+        return {
+            "retrieved_docs"   : [],
+            "answer"           : _answer,
+            "compare_table"    : {"header": [], "body": []},
+            "related_questions": [],
+            "sources"          : [],
+            "chat_history"     : chat_history + [{"role": "assistant", "content": _answer}],
+        }
+
     # 플랜 미지정 시 플랜 목록 안내 후 비교 유도 (Option B)
     if not plans:
-        return _guide_plan_selection(insurer, language)
+        result = _guide_plan_selection(insurer, language)
+        result["chat_history"] = chat_history + [{"role": "assistant", "content": result.get("answer", "")}]
+        return result
 
     #  플랜별 RAG 검색
     #_search_per_plan() 로 분리 재사용 가능
@@ -138,6 +154,7 @@ def within(state: InsuranceState) -> dict:
         "compare_table"    : compare_table,
         "related_questions": related_questions,
         "sources"          : sources,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": answer}],
     }
 
 

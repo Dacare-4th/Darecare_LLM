@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from graph.nodes.generate_node import call_llm_with_docs, _call_llm_for_related_questions
+from graph.nodes.generate_node import call_llm_parallel
 from graph.nodes.retrieve_node import query_collection, query_multi_collections
 from utils.schemas import InsuranceState
 
@@ -82,6 +82,7 @@ def claim(state: InsuranceState) -> dict:
     slots         = state.get("slots", {})
     nhis_step     = state.get("nhis_step", "")
     english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
     treatment = slots.get("treatment", "")
     plan = slots.get("plan", "")
@@ -161,6 +162,29 @@ def claim(state: InsuranceState) -> dict:
             reverse = True,
         )[:5]
 
+        if not claim_form_docs:
+            form_query = _join_query_parts(
+                english_query,
+                treatment,
+                "claim form reimbursement",
+            )
+            all_form_docs: list[dict] = []
+            for ins in _ALL_INSURERS:
+                all_form_docs.extend(
+                    query_collection(
+                        collection_name = f"{ins}_plans",
+                        query           = form_query,
+                        top_k           = 3,
+                        where           = {"doc_type": "claim_form"},
+                        hyde            = False,
+                    )
+                )
+            claim_form_docs = sorted(
+                all_form_docs,
+                key     = lambda d: d.get("score", 0),
+                reverse = True,
+            )[:3]
+
     all_docs = procedure_docs + claim_form_docs
 
     # 디버깅용 로그
@@ -183,37 +207,31 @@ def claim(state: InsuranceState) -> dict:
             "NHIS 급여 확인서(요양급여확인서)가 추가 서류로 필요합니다."
         )
 
-    # ── Step 3: 청구 절차 LLM 생성 ───────────────────────────
-    procedure_answer = call_llm_with_docs(
-        user_query=user_msg,
-        retrieved_docs=all_docs,
-        language=language,
-        extra_context=extra,
-        system_prompt=_CLAIM_SYSTEM_PROMPT,
+    # ── Step 3: 청구 절차 LLM 생성 + 연관질문 병렬 생성 ─────────
+    procedure_answer, related_questions = call_llm_parallel(
+        user_query     = user_msg,
+        retrieved_docs = all_docs,
+        language       = language,
+        extra_context  = extra,
+        system_prompt  = _CLAIM_SYSTEM_PROMPT,
     )
 
     # ── Step 4: 청구서 양식 다운로드 링크 제공 ────────────────
-    # claim_form_docs만 기준으로 claim_form 배열을 만든다.
-    # 이유: procedure_docs에는 일반 약관/절차 문서가 섞일 수 있기 때문.
     claim_forms = _build_claim_forms(
         docs=claim_form_docs,
         fallback_insurer=insurer,
     )
-    sources = _build_sources(all_docs)
 
     print("claim_forms:", claim_forms)
 
     return {
-        "retrieved_docs": all_docs,
-        "answer": procedure_answer,
-        "sources": sources,
-        "claim_form": claim_forms,
-        "compare_table": {},
-        "related_questions": _call_llm_for_related_questions(
-            user_query = user_msg,
-            answer     = procedure_answer,
-            language   = language,
-        ),
+        "retrieved_docs"   : all_docs,
+        "answer"           : procedure_answer,
+        "sources"          : _build_sources(all_docs),
+        "claim_form"       : claim_forms,
+        "compare_table"    : {},
+        "related_questions": related_questions,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": procedure_answer}],
     }
 
 

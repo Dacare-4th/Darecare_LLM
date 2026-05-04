@@ -85,6 +85,7 @@ def compare(state: InsuranceState) -> dict:
     slots         = state.get("slots", {})
     criteria      = state.get("comparison_criteria", [])
     english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
     # ── 비교 기준 결정 ───────────────────────────────────────
     if not criteria:
@@ -179,12 +180,13 @@ def compare(state: InsuranceState) -> dict:
     )
 
     return {
-        "retrieved_docs": all_retrieved,
-        "answer": parsed["answer"],
-        "compare_table": parsed["compare_table"],
+        "retrieved_docs"   : all_retrieved,
+        "answer"           : parsed["answer"],
+        "compare_table"    : parsed["compare_table"],
         "related_questions": parsed["related_questions"],
-        "sources": _build_sources(all_retrieved),
-        "claim_form": [],
+        "sources"          : _build_sources(all_retrieved),
+        "claim_form"       : [],
+        "chat_history"     : chat_history + [{"role": "assistant", "content": parsed["answer"]}],
     }
 
 

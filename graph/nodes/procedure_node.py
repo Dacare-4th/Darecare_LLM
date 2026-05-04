@@ -25,7 +25,7 @@
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
+from graph.nodes.generate_node import call_llm_parallel, _build_sources
 from graph.nodes.retrieve_node import query_collection, query_multi_collections, _FALLBACK_MIN
 from utils.schemas import InsuranceState
 
@@ -71,6 +71,7 @@ def procedure(state: InsuranceState) -> dict:
     insurer       = state.get("insurer", "")
     slots         = state.get("slots", {})
     english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
     # ── Step 1: 슬롯 기반 쿼리 보강 ───────────────────────────
     treatment = slots.get("treatment", "")
@@ -148,8 +149,8 @@ def procedure(state: InsuranceState) -> dict:
             reverse = True,
         )[:5]
 
-    # ── Step 4: LLM 단계별 절차 생성 ──────────────────────────
-    answer = call_llm_with_docs(
+    # ── Step 4: LLM 답변 + 연관질문 병렬 생성 ────────────────────
+    answer, related_questions = call_llm_parallel(
         user_query     = user_msg,
         retrieved_docs = docs,
         language       = language,
@@ -157,16 +158,10 @@ def procedure(state: InsuranceState) -> dict:
         system_prompt  = _PROCEDURE_SYSTEM_PROMPT,
     )
 
-    sources           = _build_sources(docs)
-    related_questions = _call_llm_for_related_questions(
-        user_query = user_msg,
-        answer     = answer,
-        language   = language,
-    )
-
     return {
         "retrieved_docs"   : docs,
         "answer"           : answer,
-        "sources"          : sources,
+        "sources"          : _build_sources(docs),
         "related_questions": related_questions,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": answer}],
     }

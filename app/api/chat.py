@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from app.schemas import ChatRequest, ChatResponse
 from graph.builder import build
 from fastapi.responses import FileResponse
@@ -10,7 +10,6 @@ graph = build()
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     invoke_state = {
-        "user_id": request.user_id,
         "session_id": request.session_id,
         "user_message": request.message,
         "comparison_criteria": request.comparison_criteria,
@@ -37,9 +36,14 @@ async def chat(request: ChatRequest):
 
 @router.get("/download/{insurer}/{filename}")
 async def download_file(filename: str, insurer: str):
+    safe_filename = os.path.basename(filename)
+    if not safe_filename or safe_filename != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     root_directory = os.path.dirname(os.path.abspath(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))))
-    file_path = os.path.join(root_directory, 'data', _normalize_insurer(insurer.lower()), 'claim_forms', filename)
-    return FileResponse(path=file_path, filename=filename)
+    file_path = os.path.join(root_directory, 'data', _normalize_insurer(insurer.lower()), 'claim_forms', safe_filename)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=file_path, filename=safe_filename)
 
 def _normalize_insurer(insurer: str) -> str:
     """

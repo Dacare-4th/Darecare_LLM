@@ -23,7 +23,7 @@ import os
 
 from openai import OpenAI
 
-from graph.nodes.generate_node import call_llm_with_docs, _build_sources, _call_llm_for_related_questions
+from graph.nodes.generate_node import call_llm_parallel, call_llm_with_docs, _build_sources, _call_llm_for_related_questions
 from graph.nodes.retrieve_node import query_collection
 from utils.schemas import InsuranceState
 
@@ -106,11 +106,12 @@ def nhis(state: InsuranceState) -> dict:
     nhis_step     = state.get("nhis_step", "eligibility_check")
     nhis_eligible = state.get("nhis_eligible", None)
     nhis_history  = state.get("nhis_history") or []
+    chat_history  = state.get("chat_history", [])
 
     # ── 민간보험 연계 감지 ─────────────────────────────────────
     # 어느 단계에서든 민간보험 청구 의도 감지 시 claim_node 로 이동
     if _wants_private_claim(user_msg):
-        docs              = query_collection("claim_procedures", user_msg, top_k=3)
+        docs              = query_collection("nhis_plans", user_msg, top_k=3)
         bridge_answer     = _claim_bridge_message(language)
         sources           = _build_sources(docs)
         related_questions = _call_llm_for_related_questions(
@@ -120,29 +121,31 @@ def nhis(state: InsuranceState) -> dict:
         )
         return {
             "nhis_step"        : "claim_link",
-            "intent"           : "claim",       # builder 가 다음 분기 결정에 사용
+            "intent"           : "claim",
             "retrieved_docs"   : docs,
             "answer"           : bridge_answer,
             "sources"          : sources,
             "related_questions": related_questions,
+            "chat_history"     : chat_history + [{"role": "assistant", "content": bridge_answer}],
         }
 
     # ── 단계별 처리 ────────────────────────────────────────────
     if nhis_step == "eligibility_check":
-        return _handle_eligibility(user_msg, language, nhis_history)
+        return _handle_eligibility(user_msg, language, nhis_history, chat_history)
 
     if nhis_step == "info":
-        return _handle_info(user_msg, language, nhis_eligible)
+        return _handle_info(user_msg, language, nhis_eligible, chat_history)
 
     # "done" 또는 알 수 없는 단계 — 기본 안내
-    return _handle_info(user_msg, language, nhis_eligible)
+    return _handle_info(user_msg, language, nhis_eligible, chat_history)
 
 
 # ──────────────────────────────────────────────────────────────
 # 단계별 처리 함수
 # ──────────────────────────────────────────────────────────────
 
-def _handle_eligibility(user_msg: str, language: str, nhis_history: list) -> dict:
+def _handle_eligibility(user_msg: str, language: str, nhis_history: list, chat_history: list | None = None) -> dict:
+    chat_history = chat_history or []
     """
     [Step 1] 대상자 자격 확인 단계.
 
@@ -154,14 +157,16 @@ def _handle_eligibility(user_msg: str, language: str, nhis_history: list) -> dic
     # ── 최대 턴 수 초과 → 강제 info 전환 (무한 루프 방지) ────────
     user_turn_count = sum(1 for m in nhis_history if m["role"] == "user")
     if user_turn_count >= _MAX_ELIGIBILITY_TURNS:
+        _answer = _eligibility_max_turn_message(language)
         return {
             "nhis_step"        : "info",
-            "nhis_eligible"    : None,          # 판단 불가 상태로 info 진입
+            "nhis_eligible"    : None,
             "nhis_history"     : nhis_history,
             "retrieved_docs"   : [],
-            "answer"           : _eligibility_max_turn_message(language),
+            "answer"           : _answer,
             "sources"          : [],
             "related_questions": [],
+            "chat_history"     : chat_history + [{"role": "assistant", "content": _answer}],
         }
 
     try:
@@ -209,10 +214,10 @@ def _handle_eligibility(user_msg: str, language: str, nhis_history: list) -> dic
             "answer"           : response_text,
             "sources"          : [],
             "related_questions": related_questions,
+            "chat_history"     : chat_history + [{"role": "assistant", "content": response_text}],
         }
 
     except Exception:
-        # JSON 파싱 오류 등 — 자격 확인 질문으로 fallback (이력은 유지)
         fallback_answer = _eligibility_fallback(language)
         return {
             "nhis_step"        : "eligibility_check",
@@ -222,6 +227,7 @@ def _handle_eligibility(user_msg: str, language: str, nhis_history: list) -> dic
             "answer"           : fallback_answer,
             "sources"          : [],
             "related_questions": [],
+            "chat_history"     : chat_history + [{"role": "assistant", "content": fallback_answer}],
         }
 
 
@@ -229,7 +235,9 @@ def _handle_info(
     user_msg      : str,
     language      : str,
     nhis_eligible : bool | None,
+    chat_history  : list | None = None,
 ) -> dict:
+    chat_history = chat_history or []
     """
     [Step 2] NHIS 정보 안내 단계.
 
@@ -251,7 +259,7 @@ def _handle_info(
             "해당 사실을 인지하고 민간보험 활용을 안내해 주세요."
         )
 
-    answer = call_llm_with_docs(
+    answer, related_questions = call_llm_parallel(
         user_query     = user_msg,
         retrieved_docs = docs,
         language       = language,
@@ -259,19 +267,13 @@ def _handle_info(
         system_prompt  = _NHIS_INFO_SYSTEM_PROMPT,
     )
 
-    sources           = _build_sources(docs)
-    related_questions = _call_llm_for_related_questions(
-        user_query = user_msg,
-        answer     = answer,
-        language   = language,
-    )
-
     return {
         "nhis_step"        : "info",
         "retrieved_docs"   : docs,
         "answer"           : answer,
-        "sources"          : sources,
+        "sources"          : _build_sources(docs),
         "related_questions": related_questions,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": answer}],
     }
 
 

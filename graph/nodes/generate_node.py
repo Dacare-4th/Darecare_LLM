@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
@@ -180,6 +181,34 @@ def call_llm_with_docs(
 # 내부 함수
 # ──────────────────────────────────────────────────────────────
 
+def call_llm_parallel(
+    user_query    : str,
+    retrieved_docs: list[dict],
+    language      : str,
+    extra_context : dict | None = None,
+    system_prompt : str | None  = None,
+) -> tuple[str, list[str]]:
+    """
+    답변 생성 + 연관질문 생성을 ThreadPoolExecutor로 병렬 실행한다.
+
+    연관질문은 user_query만으로 생성하므로 답변 생성과 의존성이 없어
+    진정한 병렬 처리가 가능하다.
+
+    Returns:
+        (answer, related_questions)
+    """
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_answer = pool.submit(
+            call_llm_with_docs,
+            user_query, retrieved_docs, language, extra_context, system_prompt,
+        )
+        f_questions = pool.submit(
+            _call_llm_for_related_questions,
+            user_query, language,
+        )
+        return f_answer.result(), f_questions.result()
+
+
 def _format_source(metadata: dict) -> str:
     """메타데이터를 간결한 출처 표기 문자열로 변환한다."""
     source_type = metadata.get("source_type", "")
@@ -233,11 +262,11 @@ def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
 
 def _call_llm_for_related_questions(
     user_query: str,
-    answer    : str,
     language  : str,
+    answer    : str = "",
 ) -> list[str]:
     """
-    answer 를 바탕으로 연관 질문 3개를 생성한다. (별도 LLM 호출)
+    연관 질문 3개를 생성한다. answer는 선택적으로 활용.
 
     Returns:
         연관 질문 문자열 리스트. 오류 시 빈 리스트 반환.
@@ -245,16 +274,15 @@ def _call_llm_for_related_questions(
     lang_inst  = _RELATED_QUESTIONS_LANGUAGE_INSTRUCTION.get(language, "Write the questions in English.")
     sys_prompt = _RELATED_QUESTIONS_SYSTEM_PROMPT + f"\n\n{lang_inst}"
 
-    user_content = (
-        f"User question: {user_query}\n\n"
-        f"Answer: {answer}\n\n"
-        f'Return ONLY a JSON array like: ["Q1?", "Q2?", "Q3?"]'
-    )
+    user_content = f"User question: {user_query}\n\n"
+    if answer:
+        user_content += f"Answer: {answer}\n\n"
+    user_content += 'Return ONLY a JSON array like: ["Q1?", "Q2?", "Q3?"]'
 
     try:
         client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model       = "gpt-4o",
+            model       = "gpt-4o-mini",
             messages    = [
                 {"role": "system", "content": sys_prompt},
                 {"role": "user",   "content": user_content},
