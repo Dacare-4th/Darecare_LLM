@@ -45,7 +45,7 @@ ehthumbs.db
 # 프로젝트 전용 (git 제외)
 # ========================
 # 벡터DB (용량 크고 로컬 생성)
-vectordb/
+# vectordb/
 
 # 원본 PDF (저작권 / 용량)
 # data/
