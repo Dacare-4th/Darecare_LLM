@@ -96,7 +96,7 @@ def compare(state: InsuranceState) -> dict:
 
     # ── 보험사별 컬렉션 이름 매핑 ─────────────────────────────
     collection_map: dict[str, str] = {
-        ins: ("nhis" if ins == "nhis" else f"{ins}_plans")
+        ins: f"{ins}_plans"
         for ins in insurers
     }
 
@@ -238,7 +238,7 @@ def _normalize_insurer(insurer: str) -> str:
         "compare": "compare",
     }
 
-    return aliases.get(insurer, insurer)
+    return aliases.get(insurer, "")
 
 
 def _default_criteria_from_message(user_msg: str) -> list[str]:

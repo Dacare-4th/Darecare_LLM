@@ -57,30 +57,33 @@ def get_exchange_rate(currency: str, rate_date:str="") -> float:
         환율 (float)
         오류 시 fallback 환율 반환
     """
-    currency = currency.upper()
+    currency = currency.upper().strip() if currency else ""
+    if not currency:
+        print("[currency] 환율 조회 실패: 통화 코드가 없습니다.")
+        return 0.0
+
     cache_key = f"{currency}:{rate_date or 'latest'}"
-    #캐시 확인
     cached = _rate_cache.get(cache_key)
     if cached:
         rate, ts = cached
         if time.time() - ts < _CACHE_TTL:
             return rate
-        
+
     try:
-        params={
-            "base":currency,
+        params = {
+            "base": currency,
             "quotes": "KRW",
         }
         if rate_date:
-            params["date"]=rate_date
+            params["date"] = rate_date
 
-        resp=requests.get(_API_BASE, params=params, timeout=5)
+        resp = requests.get(_API_BASE, params=params, timeout=5)
         resp.raise_for_status()
-        data=resp.json()
-        krw_row=next((item for item in data if item.get("quote")=="KRW"), None)
+        data = resp.json()
+        krw_row = next((item for item in data if item.get("quote") == "KRW"), None)
         if not krw_row:
-            return ValueError("KRW 환율 데이터가 응답에 없습니다.")
-        rate=float(krw_row["rate"])
+            raise ValueError("KRW 환율 데이터가 응답에 없습니다.")
+        rate = float(krw_row["rate"])
         _rate_cache[cache_key] = (rate, time.time())    
         return rate
         

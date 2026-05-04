@@ -68,7 +68,7 @@ def calculate(state: InsuranceState) -> dict:
 
     # 슬롯에서 계산 파라미터 추출 
     amount     = float(slots.get("amount", 0))
-    currency   = str(slots.get("currency", "USD")).upper()
+    currency   = str(slots.get("currency") or "USD").upper()
     deductible = float(slots.get("deductible", 0))
     copay_rate = float(slots.get("copay_rate", 0.2))
     rate_date=str(slots.get("date", "") or "")
@@ -105,8 +105,9 @@ def calculate(state: InsuranceState) -> dict:
 
     # 보험 컨텍스트 RAG 검색 
     # 공제액·부담률 근거 문서를 함께 제공하기 위해 검색
-    if insurer and insurer !="nhis":
-        collection=f"{insurer}_plans"
+    _VALID_INSURERS = {"uhcg", "cigna", "tricare", "msh_china"}
+    if insurer and insurer in _VALID_INSURERS:
+        collection = f"{insurer}_plans"
         context_docs = query_collection(
             collection_name = collection,
             query           = f"deductible copay rate cost sharing {english_query}",
