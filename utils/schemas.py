@@ -19,8 +19,10 @@ class Intent:
     PROCEDURE      = "procedure"        # ④ 일반 절차 안내
     NHIS           = "nhis"             # ⑤ NHIS 상담
     CLAIM          = "claim"            # ⑥ 청구 절차 + 양식
+    GENERAL_QUERY  = "general_query"    # ⑦ 일반 보장·혜택 질의
     CLARIFY        = "clarify"          # 슬롯 부족 → 재질문
     BLOCKED        = "blocked"          # 안전 필터 차단
+    RECOMMENDATION = "recommendation"   # 보험 추천/상품 선택/법적·의학적 판단 요청 → 안내 불가
 
 
 # ──────────────────────────────────────────────────────────────
@@ -45,7 +47,8 @@ class InsuranceState(TypedDict):
                                 # "uhcg" | "cigna" | "tricare" | "msh_china" | "nhis" | ""
     insurers     : list         # 복수 보험사 코드 리스트 (파이프라인 ② 용)
     slots        : dict         # 추출된 슬롯
-                                # {"plan": "Gold", "treatment": "입원", "amount": 5000, ...}
+                                # {"plan": "Gold", "treatment": "입원", "amount": 5000, 
+                                #  "currency": "USD", "date": "2025-03-15","deductible:0, "copay_rate":0.2}
     missing_slots: list         # 아직 확인되지 않은 필수 슬롯 목록
                                 # 비어있으면 모든 슬롯 충족 → 바로 처리 가능
 
@@ -54,12 +57,13 @@ class InsuranceState(TypedDict):
 
     # ── 계산 결과 (calculate_node 에서 설정) ──────────────────
     calc_result    : dict       # {"exchange_rate": float, "currency": str,
-                                #  "amount_krw": float, "copay_krw": float}
+                                #  "amount_krw": float, "copay_krw": float, "claimable_krw": float}
 
     # ── NHIS 멀티턴 상태 (nhis_node 에서 관리) ────────────────
     nhis_step      : str        # NHIS 대화 단계
                                 # "eligibility_check" | "info" | "claim_link" | "done"
     nhis_eligible  : Optional[bool]  # 자격 확인 결과 (None = 미확인)
+    nhis_history   : list       # NHIS 대화 이력 [{"role": "user"|"assistant", "content": str}, ...]
 
     # ── 최종 응답 (각 파이프라인 노드 또는 generate_node 에서 설정) ─
     answer         : str        # 클라이언트에 전달할 최종 응답 텍스트
@@ -70,6 +74,13 @@ class InsuranceState(TypedDict):
     compare_table: dict
     related_questions: list
     comparison_criteria: list
+
+    # 멀티턴 대화 이력 (intent router 컨텍스트용)
+    chat_history: list  # [{"role": "user"|"assistant", "content": str}, ...]
+
+    # 영어 검색 쿼리 (analyze_node에서 생성)
+    # 비영어 쿼리를 영어 키워드로 변환 → Dense + BM25 모두에 사용
+    english_query: str
 
 
 
@@ -95,6 +106,7 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         calc_result   = {},
         nhis_step     = "eligibility_check",
         nhis_eligible = None,
+        nhis_history  = [],
         answer        = "",
         
         # 클라이언트에 전달할 최종 응답
@@ -103,6 +115,8 @@ def initial_state(session_id: str, user_message: str) -> InsuranceState:
         compare_table={},
         related_questions=[],
         comparison_criteria=[],
+        chat_history=[],
+        english_query="",
     )
 
 

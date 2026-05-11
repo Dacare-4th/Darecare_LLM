@@ -11,13 +11,22 @@
 # 흐름:
 #   1. {insurer}_plans 컬렉션에서 RAG 검색
 #   2. LLM 으로 문서 기반 답변 생성
+#
+# [고도화 내역]
+#   P1 - HyDE → english_query 방식으로 교체
+#        analyze_node에서 생성된 english_query를 검색에 사용 (hyde=False)
+#        Dense + BM25 모두 영어 키워드로 검색 → 정확도 향상
+#   P2 - slots["plan"] 기반 메타데이터 필터 적용
+#        결과 < _FALLBACK_MIN 이면 필터 없이 재검색
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs
-from graph.nodes.retrieve_node import query_collection
+from graph.nodes.generate_node import call_llm_parallel, _build_sources
+from graph.nodes.retrieve_node import query_collection, query_multi_collections, _FALLBACK_MIN
 from utils.schemas import InsuranceState
+
+_ALL_INSURERS = ["uhcg", "cigna", "tricare", "msh_china"]
 
 # ──────────────────────────────────────────────────────────────
 # 상수
@@ -44,24 +53,65 @@ def general(state: InsuranceState) -> dict:
         slots        : 추출된 슬롯 (treatment, plan 등)
 
     반환 dict (InsuranceState 업데이트):
-        retrieved_docs : 검색된 문서 리스트
-        answer         : 문서 기반 답변
+        retrieved_docs    : 검색된 문서 리스트
+        answer            : 문서 기반 답변
+        sources           : 참조 문서 출처 리스트
+        related_questions : 연관 질문 리스트
     """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurer  = state.get("insurer", "")
-    slots    = state.get("slots", {})
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    insurer       = state.get("insurer", "")
+    if insurer not in _ALL_INSURERS:
+        insurer = ""
+    slots         = state.get("slots", {})
+    chat_history  = state.get("chat_history", [])
+    english_query = state.get("english_query", "") or user_msg
+
+    # P2: slots 에서 plan 추출 → 메타데이터 필터
+    plan         = slots.get("plan", "")
+    where_filter = {"plan": plan} if plan else None
 
     # ── Step 1: RAG 검색 ───────────────────────────────────────
-    # insurer 는 analyze_node 에서 항상 확정되므로 전용 컬렉션만 검색
-    docs = query_collection(
-        collection_name = f"{insurer}_plans",
-        query           = user_msg,
-        top_k           = 5,
-    )
+    if insurer:
+        # english_query 를 검색 쿼리로 사용 (한국어 등 비영어 쿼리의 BM25 매칭 향상)
+        search_query = english_query
 
-    # ── Step 2: LLM 문서 기반 답변 생성 ──────────────────────────
-    answer = call_llm_with_docs(
+        docs = query_collection(
+            collection_name = f"{insurer}_plans",
+            query           = search_query,
+            top_k           = 10,
+            where           = where_filter,
+            hyde            = False,
+            language        = language,
+        )
+
+        # P2 fallback: 필터 결과가 너무 적으면 필터 없이 재검색
+        if where_filter and len(docs) < _FALLBACK_MIN:
+            print(f"[general_node] plan 필터 결과 {len(docs)}개 → 필터 없이 재검색")
+            docs = query_collection(
+                collection_name = f"{insurer}_plans",
+                query           = search_query,
+                top_k           = 10,
+                hyde            = False,
+                language        = language,
+            )
+    else:
+        # insurer 미확정 시 전체 보험사 컬렉션 검색 후 score 기준 정렬
+        multi = query_multi_collections(
+            collection_names = [f"{ins}_plans" for ins in _ALL_INSURERS],
+            query            = english_query,
+            top_k_each       = 3,
+            hyde             = False,
+            language         = language,
+        )
+        docs = sorted(
+            [doc for results in multi.values() for doc in results],
+            key     = lambda d: d.get("score", 0),
+            reverse = True,
+        )[:8]
+
+    # ── Step 2: LLM 답변 + 연관질문 병렬 생성 ────────────────────
+    answer, related_questions = call_llm_parallel(
         user_query     = user_msg,
         retrieved_docs = docs,
         language       = language,
@@ -70,6 +120,9 @@ def general(state: InsuranceState) -> dict:
     )
 
     return {
-        "retrieved_docs": docs,
-        "answer"        : answer,
+        "retrieved_docs"   : docs,
+        "answer"           : answer,
+        "sources"          : _build_sources(docs),
+        "related_questions": related_questions,
+        "chat_history"     : chat_history + [{"role": "assistant", "content": answer}],
     }

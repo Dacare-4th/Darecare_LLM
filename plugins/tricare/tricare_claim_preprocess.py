@@ -5,7 +5,7 @@ from pathlib import Path
 import pdfplumber
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = BASE_DIR / "data" / "tricare" / "claim"
+DATA_DIR = BASE_DIR / "data" / "tricare" / "claim_forms"
 
 PDF = [
     {

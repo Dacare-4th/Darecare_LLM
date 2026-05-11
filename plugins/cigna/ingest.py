@@ -30,80 +30,37 @@ splitter = RecursiveCharacterTextSplitter(
 # PDF 소스 목록
 # ──────────────────────────────────────────
 
+# ──────────────────────────────────────────
+# PDF 소스 목록 (최신본만 유지)
+# ──────────────────────────────────────────
+
 PDF_SOURCES = [
-    # Benefits_Summary
-    {
-        "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116 Cigna_Global_International_Health_Plans_Benefits_Summary_USD_EN_0523.pdf",
-        "doc_type": "benefits_summary",
-        "year":     "2023",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116 Cigna Global Benefits Summary USD_EN_0924.pdf",
-        "doc_type": "benefits_summary",
-        "year":     "2024",
-        "is_latest": False,
-    },
+    # Benefits_Summary (2025 최신본)
     {
         "path":     BASE_DIR / "data/cigna/Benefits_Summary/591116-cigna-global-benefits-summary-usd_en_02_2025.pdf",
         "doc_type": "benefits_summary",
         "year":     "2025",
         "is_latest": True,
     },
-    # Customer_Guide
-    {
-        "path":     BASE_DIR / "data/cigna/Customer_Guide/200008 CGHO Customer Guide EN_05_2019.pdf",
-        "doc_type": "customer_guide",
-        "year":     "2019",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Customer_Guide/591048 CGHO Customer Guide EN_05_2022.pdf",
-        "doc_type": "customer_guide",
-        "year":     "2022",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Customer_Guide/591048-cgho-customer-guide-en_05_2023.pdf",
-        "doc_type": "customer_guide",
-        "year":     "2023",
-        "is_latest": False,
-    },
+    # Customer_Guide (2026 최신본)
     {
         "path":     BASE_DIR / "data/cigna/Customer_Guide/Cigna-Global-Health-Options-Customer-Guide_02_2026.pdf",
         "doc_type": "customer_guide",
         "year":     "2026",
         "is_latest": True,
     },
-    # Policy_Rules
-    {
-        "path":     BASE_DIR / "data/cigna/Policy_Rules/200008 CGHO Customer Guide EN_05_2019.pdf",
-        "doc_type": "policy_rules",
-        "year":     "2019",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC NA_EN_05_2023.pdf",
-        "doc_type": "policy_rules",
-        "year":     "2023",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2024.pdf",
-        "doc_type": "policy_rules",
-        "year":     "2024",
-        "is_latest": False,
-    },
-    {
-        "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHO Policy Rules CGIC_EN_02_2025.pdf",
-        "doc_type": "policy_rules",
-        "year":     "2025",
-        "is_latest": False,
-    },
+    # Policy_Rules (2026 최신본)
     {
         "path":     BASE_DIR / "data/cigna/Policy_Rules/CGHP Policy Rules CGIC EN 02_2026.pdf",
         "doc_type": "policy_rules",
         "year":     "2026",
+        "is_latest": True,
+    },
+    # South Korea Expat Guide
+    {
+        "path":     BASE_DIR / "data/cigna/etc/south-korea-expat-guide.pdf",
+        "doc_type": "expat_guide",
+        "year":     "2019",
         "is_latest": True,
     },
 ]
@@ -360,7 +317,7 @@ def ingest_pdf():
         total_tables += n_tables
         processed    += 1
 
-    print(f"\n[Cigna PDF] 완료 — {processed}개 파일 / 청크 {total_chunks}개 / 표 {total_tables}개")
+    print(f"\n[Cigna PDF] 완료 - {processed}개 파일 / 청크 {total_chunks}개 / 표 {total_tables}개")
 
     # 저장된 파일 목록
     saved = sorted(
@@ -386,7 +343,30 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from utils.ingest_to_db import ingest
 
 def run():
-    all_chunks = ingest_pdf()
+    print("[Cigna PDF] 데이터 로딩 및 변환 시작...")
+    
+    # ingest_pdf() 내부 로직을 직접 활용하거나, 
+    # load_pdf_cigna가 반환하는 리치(Rich)한 결과값을 다 합쳐야 합니다.
+    final_ingest_list = []
+
+    for source in PDF_SOURCES:
+        result = load_pdf_cigna(source) # metadata, chunks, tables가 들어있음
+        
+        # (1) 일반 텍스트 청크 추가
+        final_ingest_list.extend(result["chunks"])
+        
+        # (2) ★ 표(Table) 데이터를 청크 형식으로 변환하여 추가 ★
+        for t in result["tables"]:
+            table_chunk = {
+                "chunk_id": f"cigna_table_{source['doc_type']}_{source['year']}_p{t['page']}_{t['table_index']}",
+                "text": f"Table data from {source['doc_type']} ({source['year']}) page {t['page']}:\n\n{t['markdown']}",
+                "metadata": {
+                    **result["metadata"], # 기본 파일 메타데이터 복사
+                    "page": t["page"],
+                    "chunk_type": "table_markdown"
+                }
+            }
+            final_ingest_list.append(table_chunk)
     description_chunks = [
         { 
           "chunk_id": "cigna_claim_form_dental_description",
@@ -417,8 +397,9 @@ def run():
           }
         }
     ]
-    all_chunks.extend(description_chunks)
-    ingest(all_chunks)
+    final_ingest_list.extend(description_chunks)
+    print(f"[INFO] 최종 업로드 청크 수(텍스트+표+description): {len(final_ingest_list)}")
+    ingest(final_ingest_list)
 
 
 if __name__ == "__main__":

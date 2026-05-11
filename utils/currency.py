@@ -20,7 +20,7 @@ import requests
 # ──────────────────────────────────────────────────────────────
 
 # ExchangeRate-API 엔드포인트 (기준 통화 → 전체 환율 조회)
-_API_BASE = "https://v6.exchangerate-api.com/v6/{key}/latest/{base}"
+_API_BASE = "https://api.frankfurter.dev/v2/rates"
 
 # 기준 통화 (KRW 으로 환산)
 _BASE_CURRENCY = "KRW"
@@ -42,50 +42,57 @@ SUPPORTED_CURRENCIES = {
 # 공개 API
 # ──────────────────────────────────────────────────────────────
 
-def get_exchange_rate(currency: str) -> float:
+def get_exchange_rate(currency: str, rate_date:str="") -> float:
     """
     지정 통화 → KRW 환율을 조회한다. (1 [currency] = ? KRW)
 
     캐시가 유효하면 캐시 값을 반환한다.
-    API 키가 없거나 오류 시 fallback_rate 를 반환한다.
+    API 키 없이 사용 가능하며, rate_date가 있으면 해당 날짜 환율을 조회한다.
 
     Args:
         currency: 통화 코드 (예: "USD", "EUR", "JPY")
+        rate_date: 환율 기준일 (예: "2025-03-15", 없으면 최신 환율)
 
     Returns:
-        환율 (float) — 예: 1 USD = 1350.5 KRW 이면 1350.5
-        오류 시 0.0 반환
+        환율 (float)
+        오류 시 fallback 환율 반환
     """
-    currency = currency.upper()
+    currency = currency.upper().strip() if currency else ""
+    if not currency:
+        print("[currency] 환율 조회 실패: 통화 코드가 없습니다.")
+        return 0.0
 
-    # ── 캐시 확인 ──────────────────────────────────────────────
-    cached = _rate_cache.get(currency)
+    cache_key = f"{currency}:{rate_date or 'latest'}"
+    cached = _rate_cache.get(cache_key)
     if cached:
         rate, ts = cached
         if time.time() - ts < _CACHE_TTL:
             return rate
 
-    # ── API 호출 ───────────────────────────────────────────────
-    api_key = os.getenv("EXCHANGE_RATE_API_KEY", "")
-    if not api_key:
-        # API 키 없으면 fallback 환율 사용 (개발/테스트용)
-        return _fallback_rate(currency)
-
     try:
-        url  = _API_BASE.format(key=api_key, base=currency)
-        resp = requests.get(url, timeout=5)
+        params = {
+            "base": currency,
+            "quotes": "KRW",
+        }
+        if rate_date:
+            params["date"] = rate_date
+
+        resp = requests.get(_API_BASE, params=params, timeout=5)
         resp.raise_for_status()
         data = resp.json()
-
-        rate = float(data["conversion_rates"]["KRW"])
-        _rate_cache[currency] = (rate, time.time())   # 캐시 저장
+        krw_row = next((item for item in data if item.get("quote") == "KRW"), None)
+        if not krw_row:
+            raise ValueError("KRW 환율 데이터가 응답에 없습니다.")
+        rate = float(krw_row["rate"])
+        _rate_cache[cache_key] = (rate, time.time())    
         return rate
-
-    except Exception:
+        
+    except Exception as e:
+        print(f"[currency] 환율 API 오류:{type(e).__name__} - {e}")
         return _fallback_rate(currency)
 
 
-def convert_to_krw(amount: float, currency: str) -> dict:
+def convert_to_krw(amount: float, currency: str, rate_date:str ="" ) -> dict:
     """
     외화 금액을 KRW 로 환산한다.
 
@@ -101,11 +108,12 @@ def convert_to_krw(amount: float, currency: str) -> dict:
             "amount_krw"     : float,   # 환산 금액 (KRW)
         }
     """
-    rate = get_exchange_rate(currency)
+    rate = get_exchange_rate(currency,  rate_date)
     return {
         "original_amount": amount,
         "currency"       : currency.upper(),
         "exchange_rate"  : rate,
+        "rate_date": rate_date or "latest",
         "amount_krw"     : round(amount * rate, 0),
     }
 
@@ -115,6 +123,7 @@ def calculate_copay(
     currency: str,
     deductible: float = 0.0,
     copay_rate: float = 0.2,
+    rate_date:str="",
 ) -> dict:
     """
     본인부담금을 계산하고 KRW 로 환산한다.
@@ -147,7 +156,7 @@ def calculate_copay(
     copay_amount      = round(after_deductible * copay_rate, 2)
     claimable_amount  = round(after_deductible - copay_amount, 2)
 
-    rate              = get_exchange_rate(currency)
+    rate              = get_exchange_rate(currency, rate_date)
 
     return {
         "total_amount"    : total_amount,
@@ -156,6 +165,7 @@ def calculate_copay(
         "copay_rate"      : copay_rate,
         "copay_amount"    : copay_amount,
         "claimable_amount": claimable_amount,
+        "rate_date": rate_date or "latest",
         "exchange_rate"   : rate,
         "copay_krw"       : round(copay_amount    * rate, 0),
         "claimable_krw"   : round(claimable_amount * rate, 0),

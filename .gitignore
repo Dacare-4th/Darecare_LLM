@@ -62,7 +62,7 @@ scripts/upload_nhis_to_db.py
 .env
 
 # LangGraph 체크포인트 DB
-checkpoints.db
+checkpoints.db*
 *.db
 
 # Jupyter
@@ -77,3 +77,11 @@ evaluation/results/
 finetuning/checkpoints/
 finetuning/output/
 
+# test 파일
+test_compare.py
+test_graph.py
+test_within.pycheckpoints.db*
+
+# config_json_str을 ChromaDB 0.5.23이 기대하는 포맷
+# sandbox에서 SQLite 파일을 직접 수정하는 건 I/O 에러가 난다. 대신 맥 터미널에서 직접 실행할 스크립트를 만들어주겠다:
+scripts/fix_chromadb_config.py

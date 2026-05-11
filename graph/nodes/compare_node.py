@@ -4,37 +4,74 @@
 #
 # 파이프라인: ② 보험사 간 비교
 # 진입 조건 : analyze_node 에서 intent == "cross_compare"
+#             또는 request.insurer == "compare"
 # 다음 노드  : END
 #
 # 흐름:
 #   1. insurers 리스트의 각 컬렉션에서 병렬 RAG 검색
 #   2. 결과 병합 + Re-ranking
 #   3. 비교 프롬프트 조립
-#   4. LLM 으로 보험사 비교표 생성
+#   4. LLM 직접 호출 — JSON 강제 (_call_llm_json)
+#   5. 응답 파싱
+#   6. sources 추출 후 state 반환
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 from __future__ import annotations
 
-from graph.nodes.generate_node import call_llm_with_docs
+import json
+import os
+from typing import Any
+
+from openai import OpenAI
+
 from graph.nodes.retrieve_node import query_multi_collections
-from utils.comparison import build_comparison_prompt, rerank_by_relevance
+from utils.comparison import rerank_by_relevance
 from utils.schemas import InsuranceState
 
 # ──────────────────────────────────────────────────────────────
 # 상수
 # ──────────────────────────────────────────────────────────────
-_CROSS_SYSTEM_PROMPT = """You are a health insurance comparison specialist.
-Compare the insurance companies based ONLY on the provided documents.
-Present a clear comparison table with the following sections:
-1. Coverage & Benefits
-2. Cost Structure (premiums, deductibles, copay)
-3. Network & Access
-4. Claim Process
-5. Notable Advantages / Disadvantages
 
-For each item, clearly label which insurer it belongs to.
-If information is missing, state "Not available in documents".
-Conclude with a neutral summary of each insurer's strengths."""
+_COMPARE_INSURERS = ["uhcg", "cigna", "tricare", "msh_china"]
+
+_COMPARE_LABELS = {
+    "uhcg": "UHCG",
+    "cigna": "Cigna",
+    "tricare": "Tricare",
+    "msh_china": "MSH China",
+    "nhis": "NHIS",
+}
+
+_CROSS_SYSTEM_PROMPT = """You are a health insurance comparison specialist.
+
+Compare the insurance companies based ONLY on the provided documents.
+
+You MUST respond with valid JSON only.
+Do not wrap JSON in markdown.
+Do not include explanations outside JSON.
+
+Required JSON format:
+{
+  "answer": "brief comparison summary",
+  "compare_table": {
+    "header": ["**Comparison Criteria**", "**UHCG**", "**Cigna**", "**Tricare**", "**MSH China**"],
+    "body": [
+      ["**Annual Coverage Limit**", "value", "value", "value", "value"]
+    ]
+  },
+  "related_questions": [
+    "Question 1?",
+    "Question 2?",
+    "Question 3?"
+  ]
+}
+
+Rules:
+- Use ONLY the retrieved documents.
+- If information is missing, write "Not available in documents".
+- Do not invent benefit limits, deductibles, copay, or coverage rules.
+- Keep each table cell short and table-friendly.
+"""
 
 
 # ──────────────────────────────────────────────────────────────
@@ -42,82 +79,390 @@ Conclude with a neutral summary of each insurer's strengths."""
 # ──────────────────────────────────────────────────────────────
 
 def compare(state: InsuranceState) -> dict:
-    """
-    [파이프라인 ②] 여러 보험사를 비교하는 답변을 생성한다.
+    user_msg      = state["user_message"]
+    language      = state.get("language", "en")
+    insurers      = state.get("insurers", [])
+    slots         = state.get("slots", {})
+    criteria      = state.get("comparison_criteria", [])
+    english_query = state.get("english_query", "") or user_msg
+    chat_history  = state.get("chat_history", [])
 
-    읽는 state 필드:
-        user_message : 사용자 원문 질의
-        language     : 응답 언어 코드
-        insurers     : 비교할 보험사 코드 리스트 (예: ["uhcg", "cigna"])
-        insurer      : insurers 가 비어있을 때 fallback 단일 보험사
-        slots        : 추출된 슬롯 (treatment, plan 등)
+    # ── 비교 기준 결정 ───────────────────────────────────────
+    if not criteria:
+        criteria = _default_criteria_from_message(user_msg)
 
-    반환 dict (InsuranceState 업데이트):
-        retrieved_docs : 모든 보험사의 검색 문서 통합 리스트
-        answer         : 보험사 비교표가 포함된 최종 응답
-    """
-    user_msg = state["user_message"]
-    language = state.get("language", "en")
-    insurers = state.get("insurers", [])
-    slots    = state.get("slots", {})
+    # ── 비교 대상 보험사 결정 ─────────────────────────────────
+    insurers = _normalize_insurers(insurers, state.get("insurer", ""))
 
-    # ── 비교 대상 보험사 결정 ──────────────────────────────────
-    if not insurers:
-        # insurers 가 비어있으면 insurer 단일값 + 전체 컬렉션 fallback
-        single = state.get("insurer", "")
-        insurers = [single] if single else []
-
-    if not insurers:
-        # 비교 대상이 없으면 지원 보험사 전체를 대상으로 설정
-        insurers = ["uhcg", "cigna", "tricare", "msh_china"]
-
-    # ── Step 1: 보험사별 컬렉션 이름 매핑 ─────────────────────
-    # NHIS 는 별도 컬렉션명 사용, 나머지는 {insurer}_plans
+    # ── 보험사별 컬렉션 이름 매핑 ─────────────────────────────
     collection_map: dict[str, str] = {
-        ins: ("nhis" if ins == "nhis" else f"{ins}_plans")
+        ins: f"{ins}_plans"
         for ins in insurers
     }
 
-    # ── Step 2: 병렬 멀티 컬렉션 RAG 검색 ─────────────────────
-    results_by_collection = query_multi_collections(
-        collection_names = list(collection_map.values()),
-        query            = user_msg,
-        top_k_each       = 5,
-    )
-
-    # 컬렉션명 → 보험사명으로 키 역매핑
+    # ── 기준별 멀티 컬렉션 RAG 검색 ──────────────────────────────
+    # 단일 generic 쿼리 대신 기준(criterion)별로 검색 → 각 기준 커버리지 향상
     col_to_ins = {v: k for k, v in collection_map.items()}
-    docs_by_insurer: dict[str, list[str]] = {}
+
+    # {insurer_label: {content: str, ...}} 형태로 중복 없이 누적
+    _raw_by_insurer: dict[str, dict[str, dict]] = {
+        _COMPARE_LABELS.get(ins, ins.upper()): {}
+        for ins in insurers
+    }
     all_retrieved: list[dict] = []
 
-    for col_name, docs in results_by_collection.items():
-        insurer_name = col_to_ins.get(col_name, col_name).upper()
-        # Re-ranking: 표 문서 우선 배치
-        ranked       = rerank_by_relevance(
-            docs      = [d["content"]  for d in docs],
-            metadatas = [d["metadata"] for d in docs],
-            top_k     = 5,
+    # 1) 전체 기준 통합 쿼리 (broad coverage)
+    broad_query = _build_search_query(english_query, criteria, slots)
+    broad_results = query_multi_collections(
+        collection_names=list(collection_map.values()),
+        query=broad_query,
+        top_k_each=5,
+        hyde=False,
+        language=language,
+    )
+    for col_name, docs in broad_results.items():
+        label = _COMPARE_LABELS.get(col_to_ins.get(col_name, col_name), col_name.upper())
+        for d in docs:
+            _raw_by_insurer[label][d.get("content", "")] = d
+
+    # 2) 기준별 세부 쿼리 (per-criterion precision)
+    for criterion in criteria:
+        criterion_query = f"{criterion} {english_query}"
+        crit_results = query_multi_collections(
+            collection_names=list(collection_map.values()),
+            query=criterion_query,
+            top_k_each=4,
+            hyde=False,
+            language=language,
         )
-        docs_by_insurer[insurer_name] = [d["content"] for d in ranked]
+        for col_name, docs in crit_results.items():
+            label = _COMPARE_LABELS.get(col_to_ins.get(col_name, col_name), col_name.upper())
+            for d in docs:
+                _raw_by_insurer[label][d.get("content", "")] = d
+
+    # 3) rerank → top 10 per insurer → docs_by_insurer
+    docs_by_insurer: dict[str, list[str]] = {}
+
+    for label, content_map in _raw_by_insurer.items():
+        pooled = list(content_map.values())
+        if not pooled:
+            docs_by_insurer[label] = []
+            continue
+        try:
+            ranked = rerank_by_relevance(
+                docs=[d.get("content", "") for d in pooled],
+                metadatas=[d.get("metadata", {}) for d in pooled],
+                top_k=10,
+            )
+        except Exception:
+            ranked = pooled[:10]
+
+        docs_by_insurer[label] = [d.get("content", "") for d in ranked]
         all_retrieved.extend(ranked)
 
-    # ── Step 3: 비교 프롬프트 조립 ─────────────────────────────
-    comparison_prompt = build_comparison_prompt(
-        docs_by_subject = docs_by_insurer,
-        user_query      = user_msg,
-        language        = language,
+    # ── 비교 프롬프트 조립 ───────────────────────────────────
+    comparison_prompt = _build_comparison_prompt(
+        user_query=user_msg,
+        language=language,
+        criteria=criteria,
+        insurers=insurers,
+        docs_by_insurer=docs_by_insurer,
     )
 
-    # ── Step 4: LLM 비교표 생성 ────────────────────────────────
-    answer = call_llm_with_docs(
-        user_query     = comparison_prompt,
-        retrieved_docs = all_retrieved,
-        language       = language,
-        extra_context  = slots,
-        system_prompt  = _CROSS_SYSTEM_PROMPT,
+    # ── LLM 직접 호출 ───────────────────────────────────────
+    raw_response = _call_llm_json(comparison_prompt)
+
+    parsed = _safe_parse_compare_response(
+        raw_response=raw_response,
+        criteria=criteria,
+        insurers=insurers,
+        language=language,
     )
 
     return {
-        "retrieved_docs": all_retrieved,
-        "answer"        : answer,
+        "retrieved_docs"   : all_retrieved,
+        "answer"           : parsed["answer"],
+        "compare_table"    : parsed["compare_table"],
+        "related_questions": parsed["related_questions"],
+        "sources"          : _build_sources(all_retrieved),
+        "claim_form"       : [],
+        "chat_history"     : chat_history + [{"role": "assistant", "content": parsed["answer"]}],
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# 내부 함수
+# ──────────────────────────────────────────────────────────────
+
+def _normalize_insurers(insurers: list[str], fallback_insurer: str) -> list[str]:
+    normalized = []
+
+    for ins in insurers or []:
+        code = _normalize_insurer(ins)
+        if code and code != "compare":
+            normalized.append(code)
+
+    fallback = _normalize_insurer(fallback_insurer)
+
+    if not normalized and fallback and fallback != "compare":
+        normalized.append(fallback)
+
+    if not normalized:
+        normalized = list(_COMPARE_INSURERS)
+
+    # 중복 제거
+    result = []
+    seen = set()
+
+    for ins in normalized:
+        if ins not in seen:
+            result.append(ins)
+            seen.add(ins)
+
+    return result
+
+
+def _normalize_insurer(insurer: str) -> str:
+    insurer = (insurer or "").lower().strip()
+
+    aliases = {
+        "uhc": "uhcg",
+        "uhcg": "uhcg",
+        "unitedhealth": "uhcg",
+        "cigna": "cigna",
+        "tricare": "tricare",
+        "msh": "msh_china",
+        "msh china": "msh_china",
+        "msh_china": "msh_china",
+        "nhis": "nhis",
+        "compare": "compare",
+    }
+
+    return aliases.get(insurer, "")
+
+
+def _default_criteria_from_message(user_msg: str) -> list[str]:
+    msg = (user_msg or "").lower()
+    criteria = []
+
+    if "annual" in msg or "limit" in msg:
+        criteria.append("Annual Coverage Limit")
+
+    if "cost" in msg or "deductible" in msg or "copay" in msg or "co-pay" in msg:
+        criteria.append("Cost-Sharing Structure")
+
+    if "outpatient" in msg:
+        criteria.append("Outpatient Coverage")
+
+    if "maternity" in msg or "prenatal" in msg:
+        criteria.append("Maternity and Prenatal Coverage")
+
+    if not criteria:
+        criteria = [
+            "Annual Coverage Limit",
+            "Cost-Sharing Structure",
+            "Outpatient Coverage",
+            "Maternity and Prenatal Coverage",
+        ]
+
+    return criteria
+
+
+def _build_search_query(user_msg: str, criteria: list[str], slots: dict) -> str:
+    treatment = slots.get("treatment", "")
+    plan = slots.get("plan", "")
+
+    return " ".join(
+        str(part).strip()
+        for part in [
+            user_msg,
+            treatment,
+            plan,
+            " ".join(criteria),
+            "benefits coverage limit deductible copay outpatient maternity claim process reimbursement",
+        ]
+        if part
+    )
+
+
+def _build_comparison_prompt(
+    user_query: str,
+    language: str,
+    criteria: list[str],
+    insurers: list[str],
+    docs_by_insurer: dict[str, list[str]],
+) -> str:
+    header = ["**Comparison Criteria**"] + [
+        f"**{_COMPARE_LABELS.get(ins, ins.upper())}**"
+        for ins in insurers
+    ]
+
+    lang_instructions = {
+        "ko": "반드시 한국어로 답변하세요. 비교 기준이 영어로 주어져도 body 셀 내용과 answer는 한국어로 작성하세요.",
+        "ja": "必ず日本語で回答してください。",
+        "zh": "请用中文回答。",
+        "fr": "Répondez en français.",
+        "de": "Bitte antworten Sie auf Deutsch.",
+        "es": "Por favor, responda en español.",
+        "en": "Respond in English.",
+    }
+    lang_inst = lang_instructions.get(language, "Respond in English.")
+
+    return f"""
+IMPORTANT: {lang_inst}
+
+User question:
+{user_query}
+
+Comparison criteria:
+{json.dumps(criteria, ensure_ascii=False)}
+
+Required table header:
+{json.dumps(header, ensure_ascii=False)}
+
+Retrieved documents grouped by insurer:
+{json.dumps(docs_by_insurer, ensure_ascii=False)}
+
+Create compare_table.body rows in exactly the same order as comparison criteria.
+Each row must have exactly {len(header)} columns.
+Each row must start with the bold comparison criterion.
+All body cell content and answer MUST be in {language} language.
+
+Return JSON only.
+"""
+
+
+def _call_llm_json(prompt: str) -> str:
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": _CROSS_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.1,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        return json.dumps(
+            {
+                "answer": f"응답 생성 중 오류가 발생했습니다. ({type(e).__name__})",
+                "compare_table": {
+                    "header": [],
+                    "body": [],
+                },
+                "related_questions": [],
+            },
+            ensure_ascii=False,
+        )
+
+
+_COMPARE_FALLBACK_ANSWER = {
+    "ko": "검색된 보험 문서를 바탕으로 비교 결과를 제공합니다.",
+    "en": "Here is the comparison based on the retrieved insurance documents.",
+    "ja": "取得した保険書類に基づいて比較結果をご提供します。",
+    "zh": "以下是根据检索到的保险文件进行的比较结果。",
+    "fr": "Voici la comparaison basée sur les documents d'assurance récupérés.",
+    "de": "Hier ist der Vergleich basierend auf den abgerufenen Versicherungsdokumenten.",
+    "es": "Aquí está la comparación basada en los documentos de seguro recuperados.",
+}
+
+
+def _safe_parse_compare_response(
+    raw_response: str,
+    criteria: list[str],
+    insurers: list[str],
+    language: str = "en",
+) -> dict:
+    try:
+        parsed = json.loads(raw_response)
+    except Exception:
+        parsed = {}
+
+    answer = parsed.get("answer") or _COMPARE_FALLBACK_ANSWER.get(language, _COMPARE_FALLBACK_ANSWER["en"])
+    compare_table = parsed.get("compare_table") or {}
+
+    if not isinstance(compare_table, dict):
+        compare_table = {}
+
+    header = compare_table.get("header")
+    body = compare_table.get("body")
+
+    if not isinstance(header, list) or not isinstance(body, list):
+        compare_table = _fallback_compare_table(criteria, insurers)
+
+    related_questions = parsed.get("related_questions")
+
+    if not isinstance(related_questions, list):
+        related_questions = []
+
+    return {
+        "answer": answer,
+        "compare_table": compare_table,
+        "related_questions": related_questions[:3],
+    }
+
+
+def _fallback_compare_table(criteria: list[str], insurers: list[str]) -> dict:
+    header = ["**Comparison Criteria**"] + [
+        f"**{_COMPARE_LABELS.get(ins, ins.upper())}**"
+        for ins in insurers
+    ]
+
+    body = []
+
+    for criterion in criteria:
+        body.append(
+            [f"**{criterion}**"]
+            + ["Not available in documents" for _ in insurers]
+        )
+
+    return {
+        "header": header,
+        "body": body,
+    }
+
+
+def _build_sources(docs: list[Any]) -> list[dict]:
+    sources = []
+    seen = set()
+
+    for doc in docs[:10]:
+        metadata = doc.get("metadata", {}) if isinstance(doc, dict) else getattr(doc, "metadata", {})
+
+        document_name = (
+            metadata.get("source")
+            or metadata.get("file_name")
+            or metadata.get("url")
+            or ""
+        )
+        page = metadata.get("page") or None
+        section = (
+            metadata.get("section")
+            or metadata.get("topic")
+            or metadata.get("doc_type")
+            or ""
+        )
+
+        key = (document_name, page, section)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        sources.append(
+            {
+                "document_name": document_name,
+                "page": page,
+                "section": section,
+            }
+        )
+
+    return sources

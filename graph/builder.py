@@ -28,6 +28,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -72,6 +74,7 @@ def route_after_analyze(state: InsuranceState) -> str:
         Intent.GENERAL_QUERY  : "general",
         Intent.CLARIFY        : "clarify",
         Intent.BLOCKED        : END,       # 안전 필터 차단 → 즉시 종료
+        Intent.RECOMMENDATION : END,       # 추천/법적·의학적 판단 요청 → 즉시 종료
     }
 
     return routing_map.get(intent, "clarify")
@@ -162,6 +165,7 @@ def build() -> "CompiledGraph":
     # ── 체크포인터 설정 (멀티턴 상태 유지) ────────────────────
     # thread_id = session_id 로 대화 세션을 분리한다.
     # 체크포인트 DB 경로는 환경변수로 변경 가능하도록 설정 권장.
-    memory = SqliteSaver.from_conn_string("checkpoints.db")
+    conn = sqlite3.connect("checkpoints.db", check_same_thread=False)
+    memory = SqliteSaver(conn)
 
     return workflow.compile(checkpointer=memory)

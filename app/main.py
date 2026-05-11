@@ -3,6 +3,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, health
 
+from dotenv import load_dotenv
+load_dotenv()  # ← 이걸 추가해야 .env 파일이 로드됨!
+
 app = FastAPI(title="Dacare LLM API")
 
 app.add_middleware(

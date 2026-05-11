@@ -6,6 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 scripts = [
     BASE_DIR / "tricare" / "tricare_claim_preprocess.py",
+    BASE_DIR / "tricare" / "tricare_guide_preprocess.py",
     BASE_DIR / "uhcg" / "uhc_guide_preprocess.py",
     BASE_DIR / "uhcg" / "uhc_claim_preprocess.py",
     BASE_DIR / "nhis" / "ingest.py",

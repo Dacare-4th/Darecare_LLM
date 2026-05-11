@@ -9,9 +9,32 @@
 
 from __future__ import annotations
 
-# ──────────────────────────────────────────────────────────────
+import json
+
 # 공개 API
-# ──────────────────────────────────────────────────────────────
+
+
+def parse_compare_table(raw_response: str) -> tuple[dict, str, list]:
+    """
+    LLM JSON 응답을 (compare_table, answer, related_questions) 로 파싱한다.
+    파싱 실패 시 빈 구조체를 반환한다.
+    """
+    try:
+        data = json.loads(raw_response) if isinstance(raw_response, str) else raw_response
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+
+    compare_table = data.get("compare_table", {"header": [], "body": []})
+    if not isinstance(compare_table, dict):
+        compare_table = {"header": [], "body": []}
+
+    answer = data.get("answer", raw_response if isinstance(raw_response, str) else "")
+    related_questions = data.get("related_questions", [])
+    if not isinstance(related_questions, list):
+        related_questions = []
+
+    return compare_table, answer, related_questions
+
 
 def build_comparison_prompt(
     docs_by_subject: dict[str, list[str]],
@@ -40,6 +63,26 @@ def build_comparison_prompt(
 
     context_str = "\n\n".join(context_blocks)
 
+    # 헤더를 docs_by_subject의 실제 키(플랜명/보험사명)로 동적 생성
+    # 하드코딩("대상 1", "대상 2")하면 LLM이 그대로 따라써서 실제 이름이 안 나옴
+    subjects = list(docs_by_subject.keys())
+    header_example = ["비교 항목"] + subjects
+    body_placeholder = ["문서 기반 내용"] * len(subjects)
+    body_example = [
+        ["보장 범위"] + body_placeholder,
+        ["보장 한도"] + body_placeholder,
+        ["제외 항목"] + body_placeholder,
+        ["본인부담금 구조"] + body_placeholder,
+        ["특이 사항"] + body_placeholder,
+    ]
+
+    import json as _json
+    format_example = _json.dumps({
+        "compare_table": {"header": header_example, "body": body_example},
+        "answer": "비교 결과를 자연어로 요약하세요.",
+        "related_questions": ["관련 후속 질문 1", "관련 후속 질문 2", "관련 후속 질문 3"],
+    }, ensure_ascii=False, indent=2)
+
     prompt = f"""{lang_instruction}
 
 다음은 비교 대상별로 검색된 보험 문서입니다:
@@ -49,15 +92,15 @@ def build_comparison_prompt(
 사용자 질의: {user_query}
 
 위 문서를 바탕으로 비교표를 작성해 주세요.
-반드시 다음 항목을 포함하세요:
-- 보장 범위 (Covered Benefits)
-- 보장 한도 (Coverage Limit)
-- 제외 항목 (Exclusions)
-- 본인부담금 구조 (Cost Sharing)
-- 특이 사항 (Notes)
-
-각 항목에 대해 문서에 명시된 내용만 사용하고, 불확실한 경우 "정보 없음"으로 표시하세요.
-응답 마지막에 출처 문서 요약을 한 줄씩 추가해 주세요."""
+반드시 아래 JSON 형식으로만 응답하세요.
+마크다운, 설명 문장, 코드블록은 절대 포함하지 마세요.
+{format_example}
+규칙:
+- header의 열 이름({', '.join(subjects)})을 그대로 유지하세요.
+- 각 항목에 대해 문서에 명시된 내용만 사용하고, 불확실한 경우 "정보 없음"으로 표시하세요.
+- answer, body 셀 내용, related_questions는 반드시 {language} 언어로 작성하세요.
+- 비교 항목명(비교 기준)이 영어로 주어져도 답변 내용은 반드시 {language} 언어로 작성하세요.
+- related_questions는 반드시 3개로 작성하세요."""
 
     return prompt
 

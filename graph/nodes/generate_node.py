@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
@@ -23,9 +25,15 @@ from utils.schemas import InsuranceState
 _GENERATE_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
 Answer the user's question based ONLY on the provided reference documents.
 If the documents do not contain enough information, say so clearly.
-Always cite which document your answer is based on.
-Keep your answer concise and structured."""
+Keep your answer concise and structured.
+When citing sources, always use the document filename shown after the '|' symbol, not the document number (e.g. use 'filename.pdf', not '문서 1')."""
 
+_RELATED_QUESTIONS_SYSTEM_PROMPT = """You are a helpful health insurance assistant.
+Based on the user's question and the answer provided, generate exactly 3 follow-up questions
+the user might want to ask next. Return ONLY a JSON array of 3 strings, nothing else.
+Example: ["Question 1?", "Question 2?", "Question 3?"]"""
+
+# 답변 생성용 언어 지시문 (글자 수 제한 포함)
 _LANGUAGE_INSTRUCTION = {
     "ko": "반드시 한국어로 답변하세요. 답변은 공백 포함 최대 1500자 이내로 작성하세요.",
     "en": "Please respond in English. Keep your response within 1500 characters including spaces.",
@@ -34,6 +42,17 @@ _LANGUAGE_INSTRUCTION = {
     "fr": "Répondez en français. Limitez votre réponse à 1500 caractères espaces compris.",
     "de": "Bitte antworten Sie auf Deutsch. Halten Sie Ihre Antwort auf maximal 1500 Zeichen inkl. Leerzeichen.",
     "es": "Por favor, responda en español. Limite su respuesta a 1500 caracteres incluyendo espacios.",
+}
+
+# 연관 질문 생성용 언어 지시문 (질문 생성 맥락에 맞게 별도 관리)
+_RELATED_QUESTIONS_LANGUAGE_INSTRUCTION = {
+    "ko": "반드시 한국어로 질문을 작성하세요.",
+    "en": "Write the questions in English.",
+    "ja": "必ず日本語で質問を作成してください。",
+    "zh": "请用中文撰写问题。",
+    "fr": "Rédigez les questions en français.",
+    "de": "Schreiben Sie die Fragen auf Deutsch.",
+    "es": "Escriba las preguntas en español.",
 }
 
 
@@ -53,15 +72,32 @@ def generate(state: InsuranceState) -> dict:
         slots          : 추출된 슬롯 (추가 컨텍스트로 활용)
 
     반환 dict (InsuranceState 업데이트):
-        answer : 생성된 최종 응답 텍스트
+        answer             : 생성된 최종 응답 텍스트
+        sources            : 참조 문서 출처 리스트
+        related_questions  : 연관 질문 리스트
     """
+    retrieved_docs = state.get("retrieved_docs", [])
+
     answer = call_llm_with_docs(
         user_query     = state["user_message"],
-        retrieved_docs = state.get("retrieved_docs", []),
+        retrieved_docs = retrieved_docs,
         language       = state.get("language", "en"),
         extra_context  = state.get("slots", {}),
     )
-    return {"answer": answer}
+
+    sources = _build_sources(retrieved_docs)
+
+    related_questions = _call_llm_for_related_questions(
+        user_query = state["user_message"],
+        answer     = answer,
+        language   = state.get("language", "en"),
+    )
+
+    return {
+        "answer"            : answer,
+        "sources"           : sources,
+        "related_questions" : related_questions,
+    }
 
 
 # ──────────────────────────────────────────────────────────────
@@ -94,7 +130,8 @@ def call_llm_with_docs(
     lang_inst = _LANGUAGE_INSTRUCTION.get(language, "Please respond in English.")
 
     # ── 시스템 프롬프트 조립 ───────────────────────────────────
-    sys_prompt = (system_prompt or _GENERATE_SYSTEM_PROMPT) + f"\n\n{lang_inst}"
+    cite_inst  = "When citing sources, always use the document filename shown after the '|' symbol, not the document number (e.g. use 'filename.pdf', not '문서 1')."
+    sys_prompt = (system_prompt or _GENERATE_SYSTEM_PROMPT) + f"\n\n{lang_inst}\n{cite_inst}"
 
     # ── 참조 문서 블록 조립 ─────────────────────────────────────
     if retrieved_docs:
@@ -144,12 +181,117 @@ def call_llm_with_docs(
 # 내부 함수
 # ──────────────────────────────────────────────────────────────
 
+def call_llm_parallel(
+    user_query    : str,
+    retrieved_docs: list[dict],
+    language      : str,
+    extra_context : dict | None = None,
+    system_prompt : str | None  = None,
+) -> tuple[str, list[str]]:
+    """
+    답변 생성 + 연관질문 생성을 ThreadPoolExecutor로 병렬 실행한다.
+
+    연관질문은 user_query만으로 생성하므로 답변 생성과 의존성이 없어
+    진정한 병렬 처리가 가능하다.
+
+    Returns:
+        (answer, related_questions)
+    """
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_answer = pool.submit(
+            call_llm_with_docs,
+            user_query, retrieved_docs, language, extra_context, system_prompt,
+        )
+        f_questions = pool.submit(
+            _call_llm_for_related_questions,
+            user_query, language,
+        )
+        return f_answer.result(), f_questions.result()
+
+
 def _format_source(metadata: dict) -> str:
     """메타데이터를 간결한 출처 표기 문자열로 변환한다."""
     source_type = metadata.get("source_type", "")
+    # file_name 우선, 없으면 source 필드 fallback
+    file_name   = metadata.get("file_name") or metadata.get("source", "unknown")
     if source_type == "web":
-        return f"Web | {metadata.get('topic', '')} | {metadata.get('url', '')}"
+        url = metadata.get("source", "")
+        return f"Web | {metadata.get('topic', '')} | {url}"
     if source_type in ("pdf", "pdf_table"):
         page = metadata.get("page", "")
-        return f"PDF | {metadata.get('file_name', '')} | p.{page}"
-    return metadata.get("file_name", "unknown")
+        return f"PDF | {file_name} | p.{page}"
+    return file_name
+
+
+def _build_sources(retrieved_docs: list[dict]) -> list[dict]:
+    """
+    retrieved_docs 메타데이터를 sources 스키마로 변환한다.
+
+    document_name 은 항상 포함되며, source_type 에 따라 추가 필드를 선택적으로 포함한다.
+        - pdf / pdf_table : page, section (topic)
+        - web             : url, topic
+
+    ※ ingest 스크립트마다 파일명/URL 필드가 "file_name" 또는 "source" 로 혼용되므로
+      "file_name" 우선 → 없으면 "source" 로 fallback 한다.
+    """
+    sources = []
+    for doc in retrieved_docs[:7]:
+        meta        = doc.get("metadata", {})
+        source_type = meta.get("source_type", "")
+
+        # file_name 우선, 없으면 source 필드 fallback
+        doc_name     = meta.get("file_name") or meta.get("source", "unknown")
+        source: dict = {"document_name": doc_name}
+
+        if source_type in ("pdf", "pdf_table"):
+            if meta.get("page"):
+                source["page"] = meta["page"]
+            if meta.get("topic"):
+                source["section"] = meta["topic"]
+        elif source_type == "web":
+            # web 문서는 URL 이 "source" 필드에 저장됨
+            url = meta.get("source", "")
+            if url:
+                source["url"] = url
+            if meta.get("topic"):
+                source["topic"] = meta["topic"]
+
+        sources.append(source)
+    return sources
+
+
+def _call_llm_for_related_questions(
+    user_query: str,
+    language  : str,
+    answer    : str = "",
+) -> list[str]:
+    """
+    연관 질문 3개를 생성한다. answer는 선택적으로 활용.
+
+    Returns:
+        연관 질문 문자열 리스트. 오류 시 빈 리스트 반환.
+    """
+    lang_inst  = _RELATED_QUESTIONS_LANGUAGE_INSTRUCTION.get(language, "Write the questions in English.")
+    sys_prompt = _RELATED_QUESTIONS_SYSTEM_PROMPT + f"\n\n{lang_inst}"
+
+    user_content = f"User question: {user_query}\n\n"
+    if answer:
+        user_content += f"Answer: {answer}\n\n"
+    user_content += 'Return ONLY a JSON array like: ["Q1?", "Q2?", "Q3?"]'
+
+    try:
+        client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model       = "gpt-4o-mini",
+            messages    = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user",   "content": user_content},
+            ],
+            max_tokens  = 300,
+            temperature = 0.7,
+        )
+        raw = response.choices[0].message.content.strip()
+        return json.loads(raw)
+
+    except Exception:
+        return []
